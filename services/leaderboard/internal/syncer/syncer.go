@@ -16,9 +16,11 @@ type Fetcher interface {
 	Fetch(ctx context.Context, metric client.Metric, window client.Window, topN int) ([]string, error)
 }
 
-// Storer atomically replaces the watchset and reports what changed.
+// Storer atomically replaces the watchset, reports what changed, and records
+// when the last successful sync completed.
 type Storer interface {
 	Replace(ctx context.Context, wallets []string) (store.Delta, error)
+	SetLastSync(ctx context.Context, unix int64) error
 }
 
 // Broadcaster publishes a watchset change to subscribers.
@@ -77,6 +79,13 @@ func (s *Syncer) syncOnce(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Empty-replace guard (defense-in-depth): never wipe the watchset from an
+	// empty fetch. Skip the replace/broadcast and do not advance last-sync —
+	// this is an unhealthy sync that should surface as staleness.
+	if len(wallets) == 0 {
+		s.log.Warn("fetched empty watchset; skipping replace to avoid wiping watchset")
+		return nil
+	}
 	d, err := s.store.Replace(ctx, wallets)
 	if err != nil {
 		return err
@@ -84,6 +93,12 @@ func (s *Syncer) syncOnce(ctx context.Context) error {
 	if !d.Empty() {
 		s.bc.Broadcast(d.Added, d.Removed)
 		s.log.Info("watchset changed", "added", len(d.Added), "removed", len(d.Removed), "size", len(wallets))
+	}
+	// Record the last successful sync on every healthy fetch, including no-op
+	// syncs where the watchset did not change, so staleness reflects the last
+	// successful fetch rather than the last change.
+	if err := s.store.SetLastSync(ctx, time.Now().Unix()); err != nil {
+		return err
 	}
 	return nil
 }

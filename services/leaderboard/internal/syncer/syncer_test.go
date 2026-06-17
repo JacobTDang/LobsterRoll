@@ -105,6 +105,82 @@ func TestSyncOnce_BroadcastsOnChangeOnly(t *testing.T) {
 	}
 }
 
+func TestSyncOnce_EmptyFetchDoesNotWipe(t *testing.T) {
+	ctx := context.Background()
+	st := newStore(t)
+
+	// Pre-populate the watchset.
+	if _, err := st.Replace(ctx, []string{"0xa", "0xb"}); err != nil {
+		t.Fatalf("seed Replace: %v", err)
+	}
+
+	f := &fakeFetcher{wallets: []string{}}
+	bc := &recordingBroadcaster{}
+	s := New(f, st, bc, client.MetricPNL, "30d", 25, time.Hour, quietLogger())
+
+	if err := s.syncOnce(ctx); err != nil {
+		t.Fatalf("syncOnce: %v", err)
+	}
+
+	// Watchset must be untouched.
+	got, _ := st.List(ctx)
+	if len(got) != 2 || got[0] != "0xa" || got[1] != "0xb" {
+		t.Fatalf("watchset = %v, want [0xa 0xb] (empty fetch must not wipe)", got)
+	}
+	// No broadcast on a skipped sync.
+	if bc.count() != 0 {
+		t.Fatalf("broadcasts = %d, want 0 on empty fetch", bc.count())
+	}
+	// Last-sync must NOT advance: an empty fetch is an unhealthy/skipped sync.
+	ls, err := st.LastSync(ctx)
+	if err != nil {
+		t.Fatalf("LastSync: %v", err)
+	}
+	if ls != 0 {
+		t.Fatalf("LastSync = %d, want 0 (empty fetch must not advance last-sync)", ls)
+	}
+}
+
+func TestSyncOnce_RecordsLastSync(t *testing.T) {
+	ctx := context.Background()
+	f := &fakeFetcher{wallets: []string{"0xa", "0xb"}}
+	st := newStore(t)
+	bc := &recordingBroadcaster{}
+	s := New(f, st, bc, client.MetricPNL, "30d", 25, time.Hour, quietLogger())
+
+	// Successful sync records last-sync.
+	if err := s.syncOnce(ctx); err != nil {
+		t.Fatalf("syncOnce: %v", err)
+	}
+	ls, err := st.LastSync(ctx)
+	if err != nil {
+		t.Fatalf("LastSync: %v", err)
+	}
+	if ls <= 0 {
+		t.Fatalf("LastSync after successful sync = %d, want > 0", ls)
+	}
+
+	// Reset last-sync, then run an identical (no-op) sync: diff is empty,
+	// no broadcast, but last-sync must still advance to reflect a healthy fetch.
+	if err := st.SetLastSync(ctx, 0); err != nil {
+		t.Fatalf("SetLastSync reset: %v", err)
+	}
+	before := bc.count()
+	if err := s.syncOnce(ctx); err != nil {
+		t.Fatalf("syncOnce (no-op): %v", err)
+	}
+	if bc.count() != before {
+		t.Fatalf("broadcasts changed on no-op sync: got %d, want %d", bc.count(), before)
+	}
+	ls, err = st.LastSync(ctx)
+	if err != nil {
+		t.Fatalf("LastSync: %v", err)
+	}
+	if ls <= 0 {
+		t.Fatalf("LastSync after no-op sync = %d, want > 0 (must update on no-op too)", ls)
+	}
+}
+
 func TestSyncOnce_FetchError(t *testing.T) {
 	f := &fakeFetcher{err: errors.New("boom")}
 	s := New(f, newStore(t), &recordingBroadcaster{}, client.MetricPNL, "30d", 25, time.Hour, quietLogger())
