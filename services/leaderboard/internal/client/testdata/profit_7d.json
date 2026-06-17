@@ -1,0 +1,47 @@
+[
+    {
+        "proxyWallet": "0x96cfcb0c30942cfcd1cdf76c7d408794d66b1acb",
+        "amount": 9238344.623225637,
+        "pseudonym": "mintblade",
+        "name": "mintblade",
+        "bio": "",
+        "profileImage": "",
+        "profileImageOptimized": ""
+    },
+    {
+        "proxyWallet": "0xed64a7bf029040aa331abc87902434d815ef217d",
+        "amount": 9063378.17620066,
+        "pseudonym": "fishalive",
+        "name": "fishalive",
+        "bio": "",
+        "profileImage": "",
+        "profileImageOptimized": ""
+    },
+    {
+        "proxyWallet": "0x5e4c3b5b81171e2ca4ab776ac0d6bba787f9dba2",
+        "amount": 6221433.680681002,
+        "pseudonym": "endlessFate",
+        "name": "endlessFate",
+        "bio": "",
+        "profileImage": "",
+        "profileImageOptimized": ""
+    },
+    {
+        "proxyWallet": "0xf0318c32136c2db7fec88b84869aee6a1106c80c",
+        "amount": 1777355.8600084004,
+        "pseudonym": "BreakTheBank",
+        "name": "BreakTheBank",
+        "bio": "",
+        "profileImage": "",
+        "profileImageOptimized": ""
+    },
+    {
+        "proxyWallet": "0x4761ecf3578e388a9b16c43f874efe32ee855ae8",
+        "amount": 1092212.494988595,
+        "pseudonym": "Grenderen",
+        "name": "Grenderen",
+        "bio": "",
+        "profileImage": "",
+        "profileImageOptimized": ""
+    }
+]
