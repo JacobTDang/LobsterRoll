@@ -1,0 +1,32 @@
+# ---- Secrets / local config (NEVER commit) ----
+.env
+.env.*
+!.env.example
+CLAUDE.md
+deploy/k8s/secrets/
+*.key
+*.pem
+
+# ---- Build artifacts ----
+/bin/
+*.exe
+*.test
+*.out
+coverage.*
+
+# ---- Generated protobuf stubs (run `make proto`) ----
+/gen/
+
+# ---- Local data / caches ----
+db_cache/
+*.sqlite
+*.sqlite-*
+*.db
+
+# ---- Go ----
+vendor/
+
+# ---- OS / editor ----
+.DS_Store
+.idea/
+.vscode/

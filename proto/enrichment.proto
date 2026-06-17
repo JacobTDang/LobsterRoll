@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package lobsterroll.v1;
+
+option go_package = "github.com/JacobTDang/LobsterRoll/gen/go/lobsterroll/v1;lobsterrollv1";
+
+// Enrichment resolves an on-chain token id into human-readable market data.
+service Enrichment {
+  rpc EnrichToken(EnrichTokenRequest) returns (EnrichTokenResponse);
+}
+
+message EnrichTokenRequest {
+  string token_id = 1;
+}
+
+message EnrichTokenResponse {
+  string market_question = 1;
+  string outcome = 2;
+  string market_slug = 3;
+  string condition_id = 4;
+}

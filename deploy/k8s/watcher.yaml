@@ -1,0 +1,53 @@
+# Example service manifest. The other five services follow this exact pattern
+# (their own Deployment/Service/PVC), added as each phase lands.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: watcher-data
+  namespace: lobsterroll
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: watcher
+  namespace: lobsterroll
+spec:
+  replicas: 1 # SQLite is single-writer: never scale > 1
+  strategy:
+    type: Recreate # avoid two pods touching the same RWO volume
+  selector:
+    matchLabels:
+      app: watcher
+  template:
+    metadata:
+      labels:
+        app: watcher
+    spec:
+      containers:
+        - name: watcher
+          image: ghcr.io/jacobtdang/watcher:dev
+          envFrom:
+            - configMapRef:
+                name: lobsterroll-config
+            - secretRef:
+                name: lobsterroll-secrets
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          # liveness/readiness probes added in phase 8 once /healthz exists
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: watcher-data

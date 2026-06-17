@@ -1,0 +1,8 @@
+# Normalize to LF in the repo; dev/build happen in WSL/Linux containers.
+* text=auto eol=lf
+*.go    text eol=lf
+*.sh    text eol=lf
+Makefile text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.proto text eol=lf

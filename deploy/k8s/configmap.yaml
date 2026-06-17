@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lobsterroll-config
+  namespace: lobsterroll
+data:
+  EXECUTION_MODE: "approval"
+  LEADERBOARD_WINDOW: "7d"
+  LEADERBOARD_METRIC: "pnl"
+  LEADERBOARD_TOP_N: "25"
+  LEADERBOARD_SYNC_INTERVAL: "6h"
+  NATS_URL: "nats://nats:4222"
+  MAX_USD_PER_TRADE: "25"
+  MAX_USD_PER_DAY: "200"
+  MAX_OPEN_EXPOSURE_USD: "500"
+  MAX_SLIPPAGE_CENTS: "3"
