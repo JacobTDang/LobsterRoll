@@ -5,8 +5,10 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
 
 	_ "modernc.org/sqlite" // CGO-free SQLite driver, registered as "sqlite".
@@ -65,15 +67,65 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	// modernc's driver is safe for concurrent use, but a single writer avoids
 	// "database is locked" under concurrent writes.
 	db.SetMaxOpenConns(1)
+	// WAL + busy_timeout improve durability and avoid surfacing transient lock
+	// contention as immediate errors. synchronous=NORMAL is safe under WAL.
+	for _, pragma := range []string{
+		"PRAGMA busy_timeout=5000",
+		"PRAGMA journal_mode=WAL",
+		"PRAGMA synchronous=NORMAL",
+	} {
+		if _, err := db.ExecContext(ctx, pragma); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("set %q: %w", pragma, err)
+		}
+	}
 	if _, err := db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS watchset (
 			wallet   TEXT PRIMARY KEY,
 			added_at INTEGER NOT NULL
-		)`); err != nil {
+		);
+		CREATE TABLE IF NOT EXISTS meta (
+			key   TEXT PRIMARY KEY,
+			value TEXT NOT NULL
+		);`); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("create schema: %w", err)
 	}
 	return &Store{db: db}, nil
+}
+
+const metaLastSync = "last_synced_unix"
+
+// SetLastSync records the unix time of the most recent successful sync. This is
+// updated on every successful sync, even when the watchset did not change, so
+// clients can distinguish a fresh-but-unchanged set from a stale one.
+func (s *Store) SetLastSync(ctx context.Context, unix int64) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO meta (key, value) VALUES (?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+		metaLastSync, strconv.FormatInt(unix, 10))
+	if err != nil {
+		return fmt.Errorf("set last sync: %w", err)
+	}
+	return nil
+}
+
+// LastSync returns the unix time of the last successful sync, or 0 if none has
+// been recorded yet.
+func (s *Store) LastSync(ctx context.Context) (int64, error) {
+	var v string
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = ?`, metaLastSync).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("get last sync: %w", err)
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse last sync %q: %w", v, err)
+	}
+	return n, nil
 }
 
 // Close closes the underlying database.

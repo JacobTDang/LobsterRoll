@@ -15,6 +15,9 @@ message GetWatchsetRequest {}
 
 message GetWatchsetResponse {
   repeated string wallets = 1;
+  // Unix seconds of the last successful leaderboard sync; 0 if the service has
+  // not yet completed one. Lets clients detect a stale watchset.
+  int64 last_synced_unix = 2;
 }
 
 message StreamWatchsetRequest {}

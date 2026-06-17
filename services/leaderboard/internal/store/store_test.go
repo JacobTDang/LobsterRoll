@@ -110,6 +110,45 @@ func TestStore_ReplaceAndList(t *testing.T) {
 	}
 }
 
+func TestStore_LastSync(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+
+	// Absent -> 0, no error.
+	got, err := s.LastSync(ctx)
+	if err != nil {
+		t.Fatalf("LastSync: %v", err)
+	}
+	if got != 0 {
+		t.Fatalf("fresh LastSync = %d, want 0", got)
+	}
+
+	// Round-trip, and overwrite.
+	for _, want := range []int64{1718500000, 1718599999} {
+		if err := s.SetLastSync(ctx, want); err != nil {
+			t.Fatalf("SetLastSync(%d): %v", want, err)
+		}
+		got, err := s.LastSync(ctx)
+		if err != nil {
+			t.Fatalf("LastSync: %v", err)
+		}
+		if got != want {
+			t.Fatalf("LastSync = %d, want %d", got, want)
+		}
+	}
+}
+
+func TestStore_WALEnabled(t *testing.T) {
+	s := openTemp(t)
+	var mode string
+	if err := s.db.QueryRowContext(context.Background(), "PRAGMA journal_mode").Scan(&mode); err != nil {
+		t.Fatalf("PRAGMA journal_mode: %v", err)
+	}
+	if mode != "wal" {
+		t.Fatalf("journal_mode = %q, want wal", mode)
+	}
+}
+
 func TestStore_Persists(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "watch.db")
