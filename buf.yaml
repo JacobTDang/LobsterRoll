@@ -4,6 +4,13 @@ modules:
 lint:
   use:
     - STANDARD
+  # Deliberate project conventions: protos live flat in proto/, services use
+  # concise names (Leaderboard, not LeaderboardService), and the stream emits a
+  # WatchsetUpdate. Keep the rest of STANDARD.
+  except:
+    - PACKAGE_DIRECTORY_MATCH
+    - SERVICE_SUFFIX
+    - RPC_RESPONSE_STANDARD_NAME
 breaking:
   use:
     - FILE
