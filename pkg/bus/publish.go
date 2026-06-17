@@ -35,6 +35,11 @@ func (p *Publisher) PublishTrade(t TradeDetected) error {
 	return p.publishJSON(SubjectTradeDetected, t)
 }
 
+// PublishProposal publishes an order proposal on SubjectOrderProposed.
+func (p *Publisher) PublishProposal(o OrderProposal) error {
+	return p.publishJSON(SubjectOrderProposed, o)
+}
+
 func (p *Publisher) publishJSON(subject string, v any) error {
 	data, err := json.Marshal(v)
 	if err != nil {
