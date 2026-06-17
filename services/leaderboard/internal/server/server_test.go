@@ -9,16 +9,22 @@ import (
 
 	lobsterrollv1 "github.com/JacobTDang/LobsterRoll/gen/go"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 )
 
 type fakeLister struct {
-	wallets []string
-	err     error
+	wallets  []string
+	err      error
+	lastSync int64
+	syncErr  error
 }
 
 func (f fakeLister) List(context.Context) ([]string, error) { return f.wallets, f.err }
+
+func (f fakeLister) LastSync(context.Context) (int64, error) { return f.lastSync, f.syncErr }
 
 func newTestClient(t *testing.T, l Lister) (*Server, lobsterrollv1.LeaderboardClient) {
 	t.Helper()
@@ -43,7 +49,7 @@ func newTestClient(t *testing.T, l Lister) (*Server, lobsterrollv1.LeaderboardCl
 }
 
 func TestGetWatchset(t *testing.T) {
-	_, client := newTestClient(t, fakeLister{wallets: []string{"0xa", "0xb"}})
+	_, client := newTestClient(t, fakeLister{wallets: []string{"0xa", "0xb"}, lastSync: 12345})
 
 	resp, err := client.GetWatchset(context.Background(), &lobsterrollv1.GetWatchsetRequest{})
 	if err != nil {
@@ -52,9 +58,13 @@ func TestGetWatchset(t *testing.T) {
 	if !reflect.DeepEqual(resp.GetWallets(), []string{"0xa", "0xb"}) {
 		t.Fatalf("wallets = %v", resp.GetWallets())
 	}
+	if resp.GetLastSyncedUnix() != 12345 {
+		t.Fatalf("lastSyncedUnix = %d, want 12345", resp.GetLastSyncedUnix())
+	}
 }
 
 func TestStreamWatchset_EmitsOnChange(t *testing.T) {
+	// Empty lister: snapshot is skipped, so the first message is the diff.
 	srv, client := newTestClient(t, fakeLister{})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -83,6 +93,41 @@ func TestStreamWatchset_EmitsOnChange(t *testing.T) {
 	}
 }
 
+func TestStreamWatchset_SnapshotFirst(t *testing.T) {
+	srv, client := newTestClient(t, fakeLister{wallets: []string{"0xa", "0xb"}})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, err := client.StreamWatchset(ctx, &lobsterrollv1.StreamWatchsetRequest{})
+	if err != nil {
+		t.Fatalf("StreamWatchset: %v", err)
+	}
+
+	// First message must be the snapshot: Added == current set, Removed empty.
+	upd, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("Recv snapshot: %v", err)
+	}
+	if !reflect.DeepEqual(upd.GetAdded(), []string{"0xa", "0xb"}) {
+		t.Fatalf("snapshot added = %v, want [0xa 0xb]", upd.GetAdded())
+	}
+	if len(upd.GetRemoved()) != 0 {
+		t.Fatalf("snapshot removed = %v, want empty", upd.GetRemoved())
+	}
+
+	waitFor(t, func() bool { return srv.subscriberCount() == 1 })
+	srv.Broadcast([]string{"0xc"}, nil)
+
+	upd2, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("Recv diff: %v", err)
+	}
+	if !reflect.DeepEqual(upd2.GetAdded(), []string{"0xc"}) {
+		t.Fatalf("diff added = %v, want [0xc]", upd2.GetAdded())
+	}
+}
+
 func TestStreamWatchset_UnsubscribesOnDisconnect(t *testing.T) {
 	srv, client := newTestClient(t, fakeLister{})
 
@@ -96,6 +141,90 @@ func TestStreamWatchset_UnsubscribesOnDisconnect(t *testing.T) {
 
 	cancel() // client disconnects
 	waitFor(t, func() bool { return srv.subscriberCount() == 0 })
+}
+
+func TestStreamWatchset_OverflowReturnsResourceExhausted(t *testing.T) {
+	srv, client := newTestClient(t, fakeLister{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, err := client.StreamWatchset(ctx, &lobsterrollv1.StreamWatchsetRequest{})
+	if err != nil {
+		t.Fatalf("StreamWatchset: %v", err)
+	}
+	waitFor(t, func() bool { return srv.subscriberCount() == 1 })
+
+	// Flood far past the buffer without the client draining. gRPC may pull a
+	// couple messages into its send window, so overshoot generously.
+	for i := 0; i < subBuffer*4+8; i++ {
+		srv.Broadcast([]string{"0x1"}, nil)
+	}
+
+	// The client should eventually observe a ResourceExhausted error telling it
+	// to reconnect and re-sync.
+	for {
+		_, err := stream.Recv()
+		if err == nil {
+			continue
+		}
+		if status.Code(err) != codes.ResourceExhausted {
+			t.Fatalf("Recv err = %v, want ResourceExhausted", err)
+		}
+		break
+	}
+}
+
+// TestBroadcast_OverflowRemovesSubscriberAndClosesLost is a package-internal
+// test: it fills a subscriber's buffer beyond capacity via Broadcast without
+// draining, then asserts the subscriber was removed and its lost channel closed.
+func TestBroadcast_OverflowRemovesSubscriberAndClosesLost(t *testing.T) {
+	srv := New(fakeLister{})
+	sub, _ := srv.subscribe()
+	if srv.subscriberCount() != 1 {
+		t.Fatalf("subscriberCount = %d, want 1", srv.subscriberCount())
+	}
+
+	// Never drain sub.ch; broadcast past capacity to trigger overflow eviction.
+	for i := 0; i < subBuffer+2; i++ {
+		srv.Broadcast([]string{"0x1"}, nil)
+	}
+
+	if srv.subscriberCount() != 0 {
+		t.Fatalf("subscriberCount = %d after overflow, want 0", srv.subscriberCount())
+	}
+
+	select {
+	case <-sub.lost:
+		// closed as expected
+	default:
+		t.Fatal("lost channel not closed after overflow")
+	}
+}
+
+func TestBroadcast_DoesNotAliasCallerSlices(t *testing.T) {
+	srv := New(fakeLister{})
+	sub, _ := srv.subscribe()
+
+	added := []string{"0xa"}
+	removed := []string{"0xb"}
+	srv.Broadcast(added, removed)
+
+	// Mutate the caller's slices after Broadcast returns.
+	added[0] = "MUTATED"
+	removed[0] = "MUTATED"
+
+	select {
+	case upd := <-sub.ch:
+		if !reflect.DeepEqual(upd.GetAdded(), []string{"0xa"}) {
+			t.Fatalf("added aliased caller slice: %v", upd.GetAdded())
+		}
+		if !reflect.DeepEqual(upd.GetRemoved(), []string{"0xb"}) {
+			t.Fatalf("removed aliased caller slice: %v", upd.GetRemoved())
+		}
+	default:
+		t.Fatal("no update delivered")
+	}
 }
 
 func waitFor(t *testing.T, cond func() bool) {
