@@ -1,0 +1,65 @@
+// Package format renders a detected trade into a human-readable Telegram alert.
+package format
+
+import (
+	"fmt"
+	"math/big"
+	"strings"
+
+	"github.com/JacobTDang/LobsterRoll/pkg/bus"
+)
+
+// Market is the resolved market context for a trade (from enrichment-svc).
+type Market struct {
+	Question string
+	Outcome  string
+	Found    bool
+}
+
+// FormatAlert renders a one-way alert for a detected trade.
+func FormatAlert(td bus.TradeDetected, m Market) string {
+	emoji, label := "🔴", "SELL"
+	if strings.EqualFold(td.Side, "buy") {
+		emoji, label = "🟢", "BUY"
+	}
+
+	var market string
+	if m.Found {
+		market = fmt.Sprintf("%s — %s", m.Question, m.Outcome)
+	} else {
+		market = fmt.Sprintf("Unknown market (token %s)", shortenMiddle(td.TokenID, 4, 4))
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s %s  whale %s\n", emoji, label, shortenHex(td.Wallet))
+	fmt.Fprintf(&b, "%s\n", market)
+	fmt.Fprintf(&b, "%s shares @ $%s  (≈ $%s)\n", td.Size, td.Price, notional(td.Size, td.Price))
+	fmt.Fprintf(&b, "https://polygonscan.com/tx/%s", td.TxHash)
+	return b.String()
+}
+
+// notional returns size*price formatted to 2 decimals (USDC); "?" if unparsable.
+func notional(size, price string) string {
+	s, ok1 := new(big.Rat).SetString(size)
+	p, ok2 := new(big.Rat).SetString(price)
+	if !ok1 || !ok2 {
+		return "?"
+	}
+	return new(big.Rat).Mul(s, p).FloatString(2)
+}
+
+// shortenHex renders 0x-addresses as 0xabcd…wxyz.
+func shortenHex(addr string) string {
+	if len(addr) <= 12 || !strings.HasPrefix(addr, "0x") {
+		return addr
+	}
+	return addr[:6] + "…" + addr[len(addr)-4:]
+}
+
+// shortenMiddle keeps the first and last n runes of a long id.
+func shortenMiddle(s string, head, tail int) string {
+	if len(s) <= head+tail+1 {
+		return s
+	}
+	return s[:head] + "…" + s[len(s)-tail:]
+}
