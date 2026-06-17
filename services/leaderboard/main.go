@@ -5,9 +5,11 @@ import (
 	"errors"
 	"log/slog"
 	"net"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 
 	lobsterrollv1 "github.com/JacobTDang/LobsterRoll/gen/go"
@@ -46,7 +48,18 @@ func run(ctx context.Context, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	gs := grpc.NewServer()
+	// Keepalive reaps half-open StreamWatchset clients promptly so their
+	// server-side goroutines/subscriptions don't leak.
+	gs := grpc.NewServer(
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			Time:    30 * time.Second,
+			Timeout: 10 * time.Second,
+		}),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             10 * time.Second,
+			PermitWithoutStream: true,
+		}),
+	)
 	lobsterrollv1.RegisterLeaderboardServer(gs, srv)
 	reflection.Register(gs) // enables grpcurl/ops introspection
 
