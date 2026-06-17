@@ -107,22 +107,9 @@ func (c *Client) Fetch(ctx context.Context, metric Metric, window Window, topN i
 	q.Set("limit", strconv.Itoa(topN))
 	endpoint := c.baseURL + path + "?" + q.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	body, err := c.fetchBody(ctx, endpoint, path)
 	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("fetch leaderboard: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("leaderboard %s: status %d: %s", path, resp.StatusCode, body)
+		return nil, err
 	}
 
 	entries, err := ParseLeaderboard(body)
@@ -135,8 +122,89 @@ func (c *Client) Fetch(ctx context.Context, metric Metric, window Window, topN i
 		wallets = append(wallets, e.Wallet)
 	}
 	wallets = chain.NormalizeAddresses(wallets)
+	// An empty leaderboard is treated as a failed fetch: a transient
+	// garbage-but-200 response must never wipe the downstream watchset.
+	if len(wallets) == 0 {
+		return nil, fmt.Errorf("leaderboard %s: returned no wallets", path)
+	}
 	if len(wallets) > topN {
 		wallets = wallets[:topN]
 	}
 	return wallets, nil
+}
+
+// retry tuning. Kept short so tests run fast.
+const (
+	maxAttempts   = 3
+	errBodyMaxLen = 256
+)
+
+var backoffSchedule = []time.Duration{100 * time.Millisecond, 200 * time.Millisecond}
+
+// fetchBody performs the HTTP GET with a bounded retry/backoff loop. It retries
+// on network errors and on transient HTTP statuses (429 or >=500), up to
+// maxAttempts total. Other non-200 statuses (e.g. 4xx) fail immediately.
+func (c *Client) fetchBody(ctx context.Context, endpoint, path string) ([]byte, error) {
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 {
+			// backoff before retrying; respect ctx cancellation.
+			d := backoffSchedule[len(backoffSchedule)-1]
+			if attempt-1 < len(backoffSchedule) {
+				d = backoffSchedule[attempt-1]
+			}
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(d):
+			}
+		}
+
+		body, transient, err := c.doOnce(ctx, endpoint, path)
+		if err == nil {
+			return body, nil
+		}
+		lastErr = err
+		if !transient {
+			return nil, err
+		}
+	}
+	return nil, fmt.Errorf("leaderboard %s: giving up after %d attempts: %w", path, maxAttempts, lastErr)
+}
+
+// doOnce issues a single request. It returns transient=true when the failure is
+// worth retrying (network error, or HTTP 429 / >=500).
+func (c *Client) doOnce(ctx context.Context, endpoint, path string) (body []byte, transient bool, err error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, false, fmt.Errorf("build request: %w", err)
+	}
+	// Default Go User-Agent gets blocked by WAFs; identify ourselves.
+	req.Header.Set("User-Agent", "lobsterroll-leaderboard/1.0")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		// Network-level failures are transient and worth retrying.
+		return nil, true, fmt.Errorf("fetch leaderboard: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err = io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, true, fmt.Errorf("read body: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		isTransient := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
+		return nil, isTransient, fmt.Errorf("leaderboard %s: status %d: %s", path, resp.StatusCode, truncate(body, errBodyMaxLen))
+	}
+	return body, false, nil
+}
+
+// truncate bounds a response body for safe inclusion in error messages, so a
+// 1MB error page never floods the logs.
+func truncate(b []byte, max int) string {
+	if len(b) <= max {
+		return string(b)
+	}
+	return string(b[:max]) + fmt.Sprintf("... (%d bytes truncated)", len(b)-max)
 }

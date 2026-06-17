@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -160,5 +162,114 @@ func TestFetch_HTTPError(t *testing.T) {
 	_, err := New(srv.URL, srv.Client()).Fetch(context.Background(), MetricPNL, "7d", 5)
 	if err == nil {
 		t.Fatal("expected error on HTTP 400")
+	}
+}
+
+// Fix 1: the request must carry a custom User-Agent so WAFs don't block us.
+func TestFetch_SetsUserAgent(t *testing.T) {
+	const body = `[{"proxyWallet":"0xf0318c32136c2db7fec88b84869aee6a1106c80c","amount":100.0}]`
+	var gotUA string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUA = r.Header.Get("User-Agent")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	if _, err := New(srv.URL, srv.Client()).Fetch(context.Background(), MetricPNL, "7d", 5); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if gotUA != "lobsterroll-leaderboard/1.0" {
+		t.Errorf("User-Agent = %q, want %q", gotUA, "lobsterroll-leaderboard/1.0")
+	}
+}
+
+// Fix 2a: transient 503s are retried (up to 3 attempts) and then succeed.
+func TestFetch_RetriesTransient(t *testing.T) {
+	const body = `[{"proxyWallet":"0xf0318c32136c2db7fec88b84869aee6a1106c80c","amount":100.0}]`
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		n := atomic.AddInt32(&hits, 1)
+		if n < 3 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("temporarily unavailable"))
+			return
+		}
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	got, err := New(srv.URL, srv.Client()).Fetch(context.Background(), MetricPNL, "7d", 5)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if h := atomic.LoadInt32(&hits); h != 3 {
+		t.Errorf("handler hits = %d, want 3 (503, 503, 200)", h)
+	}
+	if len(got) != 1 {
+		t.Errorf("len = %d, want 1", len(got))
+	}
+}
+
+// Fix 2b: a non-transient 4xx (400) is NOT retried.
+func TestFetch_NoRetryOn4xx(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"bad"}`))
+	}))
+	defer srv.Close()
+
+	_, err := New(srv.URL, srv.Client()).Fetch(context.Background(), MetricPNL, "7d", 5)
+	if err == nil {
+		t.Fatal("expected error on HTTP 400")
+	}
+	if h := atomic.LoadInt32(&hits); h != 1 {
+		t.Errorf("handler hits = %d, want 1 (no retry on 4xx)", h)
+	}
+}
+
+// Fix 3: an empty leaderboard is treated as a failed fetch.
+func TestFetch_EmptyResultErrors(t *testing.T) {
+	t.Run("empty array", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte("[]"))
+		}))
+		defer srv.Close()
+		if _, err := New(srv.URL, srv.Client()).Fetch(context.Background(), MetricPNL, "7d", 5); err == nil {
+			t.Fatal("expected error for empty leaderboard")
+		}
+	})
+	t.Run("all wallets malformed", func(t *testing.T) {
+		const body = `[
+			{"proxyWallet":"not-an-address","amount":100.0},
+			{"proxyWallet":"0xshort","amount":90.0},
+			{"proxyWallet":"","amount":80.0}
+		]`
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(body))
+		}))
+		defer srv.Close()
+		if _, err := New(srv.URL, srv.Client()).Fetch(context.Background(), MetricPNL, "7d", 5); err == nil {
+			t.Fatal("expected error when all wallets are dropped during normalization")
+		}
+	})
+}
+
+// Fix 4: a huge non-200 body is truncated in the error message.
+func TestFetch_TruncatesErrorBody(t *testing.T) {
+	bigBody := strings.Repeat("A", 100000)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(bigBody))
+	}))
+	defer srv.Close()
+
+	_, err := New(srv.URL, srv.Client()).Fetch(context.Background(), MetricPNL, "7d", 5)
+	if err == nil {
+		t.Fatal("expected error on HTTP 400")
+	}
+	if len(err.Error()) > 1024 {
+		t.Errorf("error message length = %d, want bounded (<=1024) for a %d-byte body", len(err.Error()), len(bigBody))
 	}
 }
