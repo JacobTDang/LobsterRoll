@@ -43,12 +43,15 @@ type Stats struct {
 	WinRate         float64 // wins / resolvedMarkets, 0 when no resolved markets
 	ResolvedMarkets int     // markets redeemed OR fully closed by selling out
 	RealizedPnL     float64 // sum of net cash over resolved markets
+	CapitalDeployed float64 // sum of USDC put in (BUY+SPLIT) over resolved markets
+	ROI             float64 // RealizedPnL / CapitalDeployed; 0 when no capital deployed
 	TradedMarkets   int     // distinct conditionIds seen
 }
 
 // market accumulates per-conditionId state.
 type market struct {
 	net          float64
+	cost         float64 // USDC deployed (BUY + SPLIT) — the cost basis
 	redeemed     bool    // saw at least one REDEEM (held to resolution)
 	boughtShares float64 // total shares bought (opened the position)
 	netShares    float64 // bought - sold; ~0 once fully exited
@@ -81,6 +84,7 @@ func Compute(acts []dataapi.Activity) Stats {
 			switch a.Side {
 			case sideBuy:
 				m.net -= a.USDCSize
+				m.cost += a.USDCSize
 				m.boughtShares += a.Size
 				m.netShares += a.Size
 			case sideSell:
@@ -94,6 +98,7 @@ func Compute(acts []dataapi.Activity) Stats {
 			m.net += a.USDCSize
 		case typeSplit:
 			m.net -= a.USDCSize
+			m.cost += a.USDCSize
 		default:
 			// REWARD and any unknown types are ignored.
 		}
@@ -108,12 +113,18 @@ func Compute(acts []dataapi.Activity) Stats {
 		}
 		s.ResolvedMarkets++
 		s.RealizedPnL += m.net
+		s.CapitalDeployed += m.cost
 		if m.net > 0 {
 			wins++
 		}
 	}
 	if s.ResolvedMarkets > 0 {
 		s.WinRate = float64(wins) / float64(s.ResolvedMarkets)
+	}
+	if s.CapitalDeployed > 0 {
+		// ROI = realized profit per dollar of capital deployed. This is the edge
+		// metric (a 90%-win wallet buying 0.95 favorites can still have low ROI).
+		s.ROI = s.RealizedPnL / s.CapitalDeployed
 	}
 	return s
 }

@@ -159,6 +159,7 @@ func (h *Handler) lookupStats(ctx context.Context, wallet string) format.WhaleSt
 		ResolvedMarkets: int(resp.GetResolvedMarkets()),
 		RealizedPnlUSD:  resp.GetRealizedPnl(),
 		PortfolioUSD:    resp.GetPortfolioValue(),
+		ROI:             resp.GetRoi(),
 		OK:              true,
 	}
 }

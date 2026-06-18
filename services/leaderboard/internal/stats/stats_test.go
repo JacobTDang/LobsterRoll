@@ -20,6 +20,37 @@ const eps = 1e-9
 
 func approx(a, b float64) bool { return math.Abs(a-b) < eps }
 
+func TestCompute_ROI(t *testing.T) {
+	// m1: buy $100, redeem $160 -> +$60 on $100. m2: buy $100, redeem $80 -> -$20.
+	// Aggregate: +$40 on $200 deployed -> ROI = 0.20.
+	acts := []dataapi.Activity{
+		act(typeTrade, sideBuy, 100, "m1"),
+		act(typeRedeem, "", 160, "m1"),
+		act(typeTrade, sideBuy, 100, "m2"),
+		act(typeRedeem, "", 80, "m2"),
+	}
+	s := Compute(acts)
+	if s.ResolvedMarkets != 2 {
+		t.Fatalf("ResolvedMarkets = %d, want 2", s.ResolvedMarkets)
+	}
+	if !approx(s.CapitalDeployed, 200) || !approx(s.RealizedPnL, 40) || !approx(s.ROI, 0.20) {
+		t.Errorf("got cap=%v pnl=%v roi=%v, want 200/40/0.20", s.CapitalDeployed, s.RealizedPnL, s.ROI)
+	}
+}
+
+func TestCompute_ROI_SplitCountsAsCapital(t *testing.T) {
+	// A SPLIT deploys capital; redeeming resolves it. -$100 (split) +$130 (redeem)
+	// = +$30 on $100 deployed -> ROI 0.30.
+	acts := []dataapi.Activity{
+		act(typeSplit, "", 100, "m1"),
+		act(typeRedeem, "", 130, "m1"),
+	}
+	s := Compute(acts)
+	if !approx(s.CapitalDeployed, 100) || !approx(s.RealizedPnL, 30) || !approx(s.ROI, 0.30) {
+		t.Errorf("got cap=%v pnl=%v roi=%v, want 100/30/0.30", s.CapitalDeployed, s.RealizedPnL, s.ROI)
+	}
+}
+
 func TestCompute_NoResolved(t *testing.T) {
 	// Two markets traded but never redeemed -> nothing resolved.
 	acts := []dataapi.Activity{

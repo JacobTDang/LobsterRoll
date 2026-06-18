@@ -194,6 +194,7 @@ func (s *StatsSyncer) refresh(ctx context.Context) error {
 				WinRate:         st.WinRate,
 				ResolvedMarkets: int64(st.ResolvedMarkets),
 				RealizedPnL:     st.RealizedPnL,
+				ROI:             st.ROI,
 				Profit30D:       c.Profit30D,
 				PortfolioValue:  value,
 				TradedMarkets:   int64(st.TradedMarkets),

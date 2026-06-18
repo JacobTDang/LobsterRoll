@@ -30,6 +30,7 @@ type WhaleStats struct {
 	ResolvedMarkets int
 	RealizedPnlUSD  float64
 	PortfolioUSD    float64
+	ROI             float64 // realized profit / capital deployed (fraction; 0.31 = +31%)
 	OK              bool
 }
 
@@ -49,8 +50,8 @@ func FormatAlert(td bus.TradeDetected, m Market, ws WhaleStats) string {
 		lines = append(lines, "🏁 game "+time.Unix(m.EndDateUnix, 0).UTC().Format("2006-01-02 15:04 UTC"))
 	}
 	if ws.OK {
-		lines = append(lines, fmt.Sprintf("👤 %d%% win (%d mkts) · realized %s · %s portfolio",
-			int(ws.WinRate*100+0.5), ws.ResolvedMarkets, signedMoney(ws.RealizedPnlUSD), abbrevMoney(ws.PortfolioUSD)))
+		lines = append(lines, fmt.Sprintf("👤 %d%% win · %s ROI · realized %s · %s portfolio (%d mkts)",
+			int(ws.WinRate*100+0.5), signedPct(ws.ROI), signedMoney(ws.RealizedPnlUSD), abbrevMoney(ws.PortfolioUSD), ws.ResolvedMarkets))
 	}
 	lines = append(lines, fmt.Sprintf("💵 $%s  ·  %s @ $%s", notional(td.Size, td.Price), td.Size, td.Price))
 	if !td.ObservedAt.IsZero() {
@@ -142,6 +143,16 @@ func signedMoney(v float64) string {
 	default:
 		return "$0"
 	}
+}
+
+// signedPct renders a fraction as a signed whole-percent, e.g. 0.314 -> "+31%",
+// -0.12 -> "-12%" (rounded half away from zero).
+func signedPct(frac float64) string {
+	p := frac * 100
+	if p >= 0 {
+		return fmt.Sprintf("+%d%%", int(p+0.5))
+	}
+	return fmt.Sprintf("%d%%", int(p-0.5))
 }
 
 // humanWindow renders a duration in seconds as a compact window like 30m or 6h.

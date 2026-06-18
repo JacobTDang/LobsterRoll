@@ -51,11 +51,11 @@ func TestFormatAlert_WithWhaleStats(t *testing.T) {
 		TxHash:     "0x7ccd161ea4de1234567890abcdef1234567890abcdef1234567890abcdef1234",
 		ObservedAt: time.Date(2026, 6, 17, 12, 5, 0, 0, time.UTC),
 	}
-	stats := WhaleStats{WinRate: 0.65, ResolvedMarkets: 29, RealizedPnlUSD: 31_000_000, PortfolioUSD: 1200, OK: true}
+	stats := WhaleStats{WinRate: 0.65, ResolvedMarkets: 29, RealizedPnlUSD: 31_000_000, PortfolioUSD: 1200, ROI: 0.42, OK: true}
 	got := FormatAlert(td, Market{Question: "Ghana vs. Panama: O/U 2.5", Outcome: "Over", Slug: "fifwc-gha-pan-total-2pt5", Found: true}, stats)
 	want := "🟢 ENTER (BUY)  whale 0x037c…a458\n" +
 		"Ghana vs. Panama: O/U 2.5 → Over\n" +
-		"👤 65% win (29 mkts) · realized +$31.0M · $1.2k portfolio\n" +
+		"👤 65% win · +42% ROI · realized +$31.0M · $1.2k portfolio (29 mkts)\n" +
 		"💵 $5.47  ·  5.76 @ $0.95\n" +
 		"🕒 2026-06-17 12:05 UTC\n" +
 		"📊 https://polymarket.com/event/fifwc-gha-pan-total-2pt5"

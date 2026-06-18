@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // StatsRecord is a persisted per-wallet consistency stats row.
@@ -13,6 +14,7 @@ type StatsRecord struct {
 	WinRate         float64
 	ResolvedMarkets int64
 	RealizedPnL     float64
+	ROI             float64
 	Profit30D       float64
 	PortfolioValue  float64
 	TradedMarkets   int64
@@ -32,10 +34,17 @@ func (s *Store) ensureStatsSchema(ctx context.Context) error {
 			profit_30d       REAL    NOT NULL,
 			portfolio_value  REAL    NOT NULL,
 			traded_markets   INTEGER NOT NULL,
-			computed_unix    INTEGER NOT NULL
+			computed_unix    INTEGER NOT NULL,
+			roi              REAL    NOT NULL DEFAULT 0
 		)`)
 	if err != nil {
 		return fmt.Errorf("create wallet_stats schema: %w", err)
+	}
+	// Migrate older stats DBs that predate roi; ignore "duplicate column".
+	if _, err := s.db.ExecContext(ctx,
+		`ALTER TABLE wallet_stats ADD COLUMN roi REAL NOT NULL DEFAULT 0`); err != nil &&
+		!strings.Contains(err.Error(), "duplicate column") {
+		return fmt.Errorf("migrate wallet_stats.roi: %w", err)
 	}
 	return nil
 }
@@ -47,8 +56,8 @@ func (s *Store) UpsertStats(ctx context.Context, r StatsRecord) error {
 	}
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO wallet_stats
-		   (proxy_wallet, win_rate, resolved_markets, realized_pnl, profit_30d, portfolio_value, traded_markets, computed_unix)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		   (proxy_wallet, win_rate, resolved_markets, realized_pnl, profit_30d, portfolio_value, traded_markets, computed_unix, roi)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(proxy_wallet) DO UPDATE SET
 		   win_rate=excluded.win_rate,
 		   resolved_markets=excluded.resolved_markets,
@@ -56,9 +65,10 @@ func (s *Store) UpsertStats(ctx context.Context, r StatsRecord) error {
 		   profit_30d=excluded.profit_30d,
 		   portfolio_value=excluded.portfolio_value,
 		   traded_markets=excluded.traded_markets,
-		   computed_unix=excluded.computed_unix`,
+		   computed_unix=excluded.computed_unix,
+		   roi=excluded.roi`,
 		r.Wallet, r.WinRate, r.ResolvedMarkets, r.RealizedPnL, r.Profit30D,
-		r.PortfolioValue, r.TradedMarkets, r.ComputedUnix)
+		r.PortfolioValue, r.TradedMarkets, r.ComputedUnix, r.ROI)
 	if err != nil {
 		return fmt.Errorf("upsert stats %s: %w", r.Wallet, err)
 	}
@@ -72,10 +82,10 @@ func (s *Store) GetStats(ctx context.Context, wallet string) (StatsRecord, bool,
 	}
 	r := StatsRecord{Wallet: wallet}
 	err := s.db.QueryRowContext(ctx,
-		`SELECT win_rate, resolved_markets, realized_pnl, profit_30d, portfolio_value, traded_markets, computed_unix
+		`SELECT win_rate, resolved_markets, realized_pnl, profit_30d, portfolio_value, traded_markets, computed_unix, roi
 		   FROM wallet_stats WHERE proxy_wallet = ?`, wallet).
 		Scan(&r.WinRate, &r.ResolvedMarkets, &r.RealizedPnL, &r.Profit30D,
-			&r.PortfolioValue, &r.TradedMarkets, &r.ComputedUnix)
+			&r.PortfolioValue, &r.TradedMarkets, &r.ComputedUnix, &r.ROI)
 	if errors.Is(err, sql.ErrNoRows) {
 		return StatsRecord{}, false, nil
 	}

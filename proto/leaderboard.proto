@@ -29,6 +29,7 @@ message WalletStats {
   int64 traded_markets = 7;
   int64 computed_unix = 8; // 0 if not yet computed
   bool found = 9;
+  double roi = 10; // realized profit / capital deployed (the edge metric)
 }
 
 message GetWatchsetRequest {}
