@@ -31,6 +31,7 @@ message WalletStats {
   bool found = 9;
   double roi = 10; // realized profit / capital deployed (the edge metric)
   int64 skill_score = 11; // 0-100 percentile by shrunk ROI within the tracked pool
+  bool fresh = 12; // false = cooling off (recent downward regime)
 }
 
 message GetWatchsetRequest {}

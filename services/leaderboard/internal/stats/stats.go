@@ -23,6 +23,7 @@ package stats
 
 import (
 	"math"
+	"sort"
 
 	"github.com/JacobTDang/LobsterRoll/services/leaderboard/internal/dataapi"
 )
@@ -40,12 +41,13 @@ const (
 
 // Stats are the consistency metrics for a single wallet.
 type Stats struct {
-	WinRate         float64 // wins / resolvedMarkets, 0 when no resolved markets
-	ResolvedMarkets int     // markets redeemed OR fully closed by selling out
-	RealizedPnL     float64 // sum of net cash over resolved markets
-	CapitalDeployed float64 // sum of USDC put in (BUY+SPLIT) over resolved markets
-	ROI             float64 // RealizedPnL / CapitalDeployed; 0 when no capital deployed
-	TradedMarkets   int     // distinct conditionIds seen
+	WinRate         float64   // wins / resolvedMarkets, 0 when no resolved markets
+	ResolvedMarkets int       // markets redeemed OR fully closed by selling out
+	RealizedPnL     float64   // sum of net cash over resolved markets
+	CapitalDeployed float64   // sum of USDC put in (BUY+SPLIT) over resolved markets
+	ROI             float64   // RealizedPnL / CapitalDeployed; 0 when no capital deployed
+	Returns         []float64 // per-resolved-market return (net/cost), oldest first
+	TradedMarkets   int       // distinct conditionIds seen
 }
 
 // market accumulates per-conditionId state.
@@ -55,6 +57,7 @@ type market struct {
 	redeemed     bool    // saw at least one REDEEM (held to resolution)
 	boughtShares float64 // total shares bought (opened the position)
 	netShares    float64 // bought - sold; ~0 once fully exited
+	lastTS       int64   // latest activity timestamp (~resolution time)
 }
 
 // closedShareEps treats a residual share position within this fraction of the
@@ -78,6 +81,9 @@ func Compute(acts []dataapi.Activity) Stats {
 		if m == nil {
 			m = &market{}
 			markets[a.ConditionID] = m
+		}
+		if a.Timestamp > m.lastTS {
+			m.lastTS = a.Timestamp
 		}
 		switch a.Type {
 		case typeTrade:
@@ -107,15 +113,26 @@ func Compute(acts []dataapi.Activity) Stats {
 	var s Stats
 	var wins int
 	s.TradedMarkets = len(markets)
+
+	// Collect resolved markets so the per-market return series can be emitted in
+	// resolution-time order (oldest first) for cooling-off detection downstream.
+	resolved := make([]*market, 0, len(markets))
 	for _, m := range markets {
-		if !m.resolved() {
-			continue
+		if m.resolved() {
+			resolved = append(resolved, m)
 		}
+	}
+	sort.Slice(resolved, func(i, j int) bool { return resolved[i].lastTS < resolved[j].lastTS })
+
+	for _, m := range resolved {
 		s.ResolvedMarkets++
 		s.RealizedPnL += m.net
 		s.CapitalDeployed += m.cost
 		if m.net > 0 {
 			wins++
+		}
+		if m.cost > 0 {
+			s.Returns = append(s.Returns, m.net/m.cost)
 		}
 	}
 	if s.ResolvedMarkets > 0 {

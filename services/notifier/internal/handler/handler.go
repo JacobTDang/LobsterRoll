@@ -161,6 +161,7 @@ func (h *Handler) lookupStats(ctx context.Context, wallet string) format.WhaleSt
 		PortfolioUSD:    resp.GetPortfolioValue(),
 		ROI:             resp.GetRoi(),
 		SkillScore:      int(resp.GetSkillScore()),
+		Fresh:           resp.GetFresh(),
 		OK:              true,
 	}
 }

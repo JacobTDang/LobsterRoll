@@ -15,7 +15,7 @@ func TestStats_UpsertAndGet(t *testing.T) {
 
 	rec := StatsRecord{
 		Wallet: "0xabc", WinRate: 0.65, ResolvedMarkets: 29, RealizedPnL: 31_000_000,
-		ROI: 0.42, Profit30D: 1_234.5, PortfolioValue: 999.9, TradedMarkets: 40, ComputedUnix: 1700000000,
+		ROI: 0.42, Fresh: true, Profit30D: 1_234.5, PortfolioValue: 999.9, TradedMarkets: 40, ComputedUnix: 1700000000,
 	}
 	if err := s.UpsertStats(ctx, rec); err != nil {
 		t.Fatalf("UpsertStats: %v", err)

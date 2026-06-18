@@ -91,6 +91,7 @@ func (s *Server) GetWalletStats(ctx context.Context, req *lobsterrollv1.GetWalle
 		ComputedUnix:    rec.ComputedUnix,
 		Roi:             rec.ROI,
 		SkillScore:      rec.SkillScore,
+		Fresh:           rec.Fresh,
 		Found:           true,
 	}, nil
 }

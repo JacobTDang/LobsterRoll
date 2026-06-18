@@ -32,6 +32,7 @@ type WhaleStats struct {
 	PortfolioUSD    float64
 	ROI             float64 // realized profit / capital deployed (fraction; 0.31 = +31%)
 	SkillScore      int     // 0-100 shrunk-ROI percentile within the tracked pool
+	Fresh           bool    // false = cooling off (recent downward regime)
 	OK              bool
 }
 
@@ -51,8 +52,12 @@ func FormatAlert(td bus.TradeDetected, m Market, ws WhaleStats) string {
 		lines = append(lines, "🏁 game "+time.Unix(m.EndDateUnix, 0).UTC().Format("2006-01-02 15:04 UTC"))
 	}
 	if ws.OK {
-		lines = append(lines, fmt.Sprintf("👤 SKILL %d · %d%% win · %s ROI · realized %s · %s portfolio (%d mkts)",
-			ws.SkillScore, int(ws.WinRate*100+0.5), signedPct(ws.ROI), signedMoney(ws.RealizedPnlUSD), abbrevMoney(ws.PortfolioUSD), ws.ResolvedMarkets))
+		fresh := " ✅"
+		if !ws.Fresh {
+			fresh = " ⚠️cooling"
+		}
+		lines = append(lines, fmt.Sprintf("👤 SKILL %d%s · %d%% win · %s ROI · realized %s · %s portfolio (%d mkts)",
+			ws.SkillScore, fresh, int(ws.WinRate*100+0.5), signedPct(ws.ROI), signedMoney(ws.RealizedPnlUSD), abbrevMoney(ws.PortfolioUSD), ws.ResolvedMarkets))
 	}
 	lines = append(lines, fmt.Sprintf("💵 $%s  ·  %s @ $%s", notional(td.Size, td.Price), td.Size, td.Price))
 	if !td.ObservedAt.IsZero() {

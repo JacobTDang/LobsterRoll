@@ -246,9 +246,28 @@ func TestCompute_PartialSellNotResolved(t *testing.T) {
 	}
 }
 
+func TestCompute_ReturnsTimeOrdered(t *testing.T) {
+	// Market B resolves LATER than A; Returns must be oldest-first regardless of
+	// activity order in the input.
+	acts := []dataapi.Activity{
+		{Type: typeTrade, Side: sideBuy, USDCSize: 100, ConditionID: "B", Timestamp: 300},
+		{Type: typeTrade, Side: sideBuy, USDCSize: 100, ConditionID: "A", Timestamp: 100},
+		{Type: typeRedeem, USDCSize: 150, ConditionID: "A", Timestamp: 200}, // A: +0.5, resolves @200
+		{Type: typeRedeem, USDCSize: 90, ConditionID: "B", Timestamp: 400},  // B: -0.1, resolves @400
+	}
+	s := Compute(acts)
+	if len(s.Returns) != 2 {
+		t.Fatalf("Returns len = %d, want 2", len(s.Returns))
+	}
+	if !approx(s.Returns[0], 0.5) || !approx(s.Returns[1], -0.1) {
+		t.Errorf("Returns = %v, want [0.5 -0.1] (oldest first)", s.Returns)
+	}
+}
+
 func TestCompute_Empty(t *testing.T) {
 	s := Compute(nil)
-	if s != (Stats{}) {
+	if s.ResolvedMarkets != 0 || s.TradedMarkets != 0 || s.RealizedPnL != 0 ||
+		s.ROI != 0 || s.CapitalDeployed != 0 || len(s.Returns) != 0 {
 		t.Errorf("Compute(nil) = %+v, want zero", s)
 	}
 }

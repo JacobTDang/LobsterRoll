@@ -198,6 +198,7 @@ func (s *StatsSyncer) refresh(ctx context.Context) error {
 				ResolvedMarkets: int64(st.ResolvedMarkets),
 				RealizedPnL:     st.RealizedPnL,
 				ROI:             st.ROI,
+				Fresh:           skill.Fresh(st.Returns),
 				Profit30D:       c.Profit30D,
 				PortfolioValue:  value,
 				TradedMarkets:   int64(st.TradedMarkets),

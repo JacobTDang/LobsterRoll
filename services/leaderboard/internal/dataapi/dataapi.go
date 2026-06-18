@@ -37,6 +37,7 @@ type Activity struct {
 	Size        float64 `json:"size"`        // share quantity of the event
 	USDCSize    float64 `json:"usdcSize"`    // cash size of the event
 	ConditionID string  `json:"conditionId"` // market identifier
+	Timestamp   int64   `json:"timestamp"`   // unix seconds of the event
 }
 
 // Client reads per-wallet data over HTTP.
