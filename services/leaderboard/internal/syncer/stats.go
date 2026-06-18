@@ -55,6 +55,7 @@ type StatsConfig struct {
 	MinWinRate      float64       // selection gate: min win rate (0..1)
 	MinPortfolioUSD float64       // selection gate: min portfolio value
 	MinRealizedPnL  float64       // selection gate: min realized PnL
+	RequireFresh    bool          // selection gate: exclude cooling-off wallets
 	ShrinkK         float64       // skill shrinkage prior strength (equiv. resolved markets)
 	TopN            int           // selection: max watchset size
 	Interval        time.Duration // how often to rebuild
@@ -192,13 +193,14 @@ func (s *StatsSyncer) refresh(ctx context.Context) error {
 				value = 0
 			}
 
+			fresh := skill.Fresh(st.Returns)
 			if err := s.store.UpsertStats(gctx, store.StatsRecord{
 				Wallet:          c.Wallet,
 				WinRate:         st.WinRate,
 				ResolvedMarkets: int64(st.ResolvedMarkets),
 				RealizedPnL:     st.RealizedPnL,
 				ROI:             st.ROI,
-				Fresh:           skill.Fresh(st.Returns),
+				Fresh:           fresh,
 				Profit30D:       c.Profit30D,
 				PortfolioValue:  value,
 				TradedMarkets:   int64(st.TradedMarkets),
@@ -213,6 +215,7 @@ func (s *StatsSyncer) refresh(ctx context.Context) error {
 				RealizedPnL:     st.RealizedPnL,
 				PortfolioUSD:    value,
 				ROI:             st.ROI,
+				Fresh:           fresh,
 			}
 			mu.Unlock()
 			return nil
@@ -243,6 +246,7 @@ func (s *StatsSyncer) refresh(ctx context.Context) error {
 		MinWinRate:      s.cfg.MinWinRate,
 		MinPortfolioUSD: s.cfg.MinPortfolioUSD,
 		MinRealizedPnL:  s.cfg.MinRealizedPnL,
+		RequireFresh:    s.cfg.RequireFresh,
 	}, s.cfg.TopN)
 	// Empty-replace guard (defense-in-depth): never wipe the watchset from an
 	// empty selection (e.g. all crawls failed, or none cleared min-resolved).

@@ -20,6 +20,7 @@ type Stats struct {
 	PortfolioUSD    float64
 	ROI             float64 // raw ROI (input to shrinkage)
 	ShrunkROI       float64 // sample-size-shrunk ROI — the skill ranking key
+	Fresh           bool    // false = cooling off (recent downward regime)
 }
 
 // Criteria are the hard quality gates a wallet must clear to be tracked. A
@@ -29,6 +30,7 @@ type Criteria struct {
 	MinWinRate      float64 // 0..1
 	MinPortfolioUSD float64 // current portfolio value
 	MinRealizedPnL  float64 // proven net profit (cash actually won)
+	RequireFresh    bool    // when true, exclude wallets flagged as cooling off
 }
 
 // meets reports whether s clears every gate in c.
@@ -36,7 +38,8 @@ func (c Criteria) meets(s Stats) bool {
 	return s.ResolvedMarkets >= c.MinResolved &&
 		s.WinRate >= c.MinWinRate &&
 		s.PortfolioUSD >= c.MinPortfolioUSD &&
-		s.RealizedPnL >= c.MinRealizedPnL
+		s.RealizedPnL >= c.MinRealizedPnL &&
+		(!c.RequireFresh || s.Fresh)
 }
 
 // Select returns up to topN wallets that clear every gate in crit, ranked by

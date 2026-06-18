@@ -61,6 +61,7 @@ func run(ctx context.Context, log *slog.Logger) error {
 			MinWinRate:      cfg.StatsMinWinRate,
 			MinPortfolioUSD: cfg.StatsMinPortfolio,
 			MinRealizedPnL:  cfg.StatsMinRealized,
+			RequireFresh:    cfg.StatsRequireFresh,
 			ShrinkK:         cfg.SkillShrinkK,
 			TopN:            cfg.TopN,
 			Interval:        cfg.StatsRefresh,

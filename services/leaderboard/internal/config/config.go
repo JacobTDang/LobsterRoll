@@ -25,6 +25,7 @@ type Config struct {
 	StatsMinWinRate    float64       // selection gate: min win rate (0..1)
 	StatsMinPortfolio  float64       // selection gate: min portfolio value (USD)
 	StatsMinRealized   float64       // selection gate: min realized PnL (USD)
+	StatsRequireFresh  bool          // selection gate: exclude cooling-off wallets
 	SkillShrinkK       float64       // skill shrinkage prior strength (equiv. resolved markets)
 	CandidateTopK      int           // top-K per window pulled into the candidate pool
 	StatsMaxCandidates int           // cap on candidates crawled per refresh
@@ -48,6 +49,7 @@ const (
 	defStatsMinWinRate    = 0.90    // only proven-accurate wallets
 	defStatsMinPortfolio  = 100_000 // only well-capitalized wallets ($100k+)
 	defStatsMinRealized   = 0       // optional: set to require proven net profit
+	defStatsRequireFresh  = true    // exclude cooling-off wallets from the watchset
 	defSkillShrinkK       = 200     // ~resolved markets before a wallet's own ROI outweighs the prior
 	defCandidateTopK      = 50      // top-K per window into the pool
 	defStatsMaxCandidates = 100     // crawl a wide pool; strict gates keep few
@@ -72,6 +74,7 @@ func Load(getenv func(string) string) (Config, error) {
 		StatsMinWinRate:    defStatsMinWinRate,
 		StatsMinPortfolio:  defStatsMinPortfolio,
 		StatsMinRealized:   defStatsMinRealized,
+		StatsRequireFresh:  defStatsRequireFresh,
 		SkillShrinkK:       defSkillShrinkK,
 		CandidateTopK:      defCandidateTopK,
 		StatsMaxCandidates: defStatsMaxCandidates,
@@ -122,6 +125,13 @@ func Load(getenv func(string) string) (Config, error) {
 			}
 			*p.dst = f
 		}
+	}
+	if v := getenv("STATS_REQUIRE_FRESH"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("STATS_REQUIRE_FRESH: %w", err)
+		}
+		cfg.StatsRequireFresh = b
 	}
 	if v := getenv("STATS_REFRESH_INTERVAL"); v != "" {
 		d, err := time.ParseDuration(v)

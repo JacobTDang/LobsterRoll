@@ -130,6 +130,27 @@ func TestSelect_GatesWinRatePortfolioRealized(t *testing.T) {
 	}
 }
 
+func TestSelect_RequireFreshExcludesCooling(t *testing.T) {
+	cands := []Candidate{{Wallet: "0xfresh"}, {Wallet: "0xcooling"}}
+	stats := map[string]Stats{
+		"0xfresh":   {WinRate: 0.95, ResolvedMarkets: 30, RealizedPnL: 500_000, PortfolioUSD: 1_000_000, ShrunkROI: 0.30, Fresh: true},
+		"0xcooling": {WinRate: 0.95, ResolvedMarkets: 30, RealizedPnL: 500_000, PortfolioUSD: 1_000_000, ShrunkROI: 0.40, Fresh: false},
+	}
+	crit := Criteria{MinResolved: 20, MinWinRate: 0.90, MinPortfolioUSD: 100_000, RequireFresh: true}
+	got := Select(cands, stats, crit, 10)
+	// Cooling wallet excluded even though its shrunk ROI is higher.
+	if len(got) != 1 || got[0] != "0xfresh" {
+		t.Fatalf("Select = %v, want [0xfresh] (cooling wallet gated out)", got)
+	}
+
+	// With RequireFresh off, the cooling (higher-ROI) wallet is kept and ranks first.
+	crit.RequireFresh = false
+	got = Select(cands, stats, crit, 10)
+	if len(got) != 2 || got[0] != "0xcooling" {
+		t.Fatalf("Select = %v, want [0xcooling 0xfresh] when fresh not required", got)
+	}
+}
+
 func TestSelect_StrictMayReturnFewerThanTopN(t *testing.T) {
 	// Strict gates: even with topN=30 and many candidates, only those clearing
 	// the bar are returned (quality over a fixed count).
