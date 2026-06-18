@@ -43,7 +43,7 @@ func run(ctx context.Context, log *slog.Logger) error {
 	// Give the HTTP client a timeout comfortably above the long-poll duration so
 	// getUpdates is never cut short (and can't deadlock if longPollSec is raised).
 	hc := &http.Client{Timeout: time.Duration(longPollSec)*time.Second + 20*time.Second}
-	tg := telegram.New(telegram.DefaultBaseURL, cfg.TelegramToken, hc)
+	tg := telegram.New(cfg.TelegramBaseURL, cfg.TelegramToken, hc) // "" -> DefaultBaseURL
 	pub, err := bus.Connect(cfg.NATSURL)
 	if err != nil {
 		return err

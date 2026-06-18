@@ -8,11 +8,12 @@ import (
 
 // Config is the resolved notifier-svc configuration.
 type Config struct {
-	TelegramToken  string
-	TelegramChatID string
-	NATSURL        string
-	EnrichmentAddr string
-	QueueGroup     string
+	TelegramToken   string
+	TelegramChatID  string
+	TelegramBaseURL string // override the Bot API host (tests/verify); "" = default
+	NATSURL         string
+	EnrichmentAddr  string
+	QueueGroup      string
 }
 
 const (
@@ -24,9 +25,10 @@ const (
 // Load resolves config using getenv, applying defaults and validating.
 func Load(getenv func(string) string) (Config, error) {
 	cfg := Config{
-		TelegramToken:  getenv("TELEGRAM_BOT_TOKEN"),
-		TelegramChatID: getenv("TELEGRAM_CHAT_ID"),
-		NATSURL:        orDefault(getenv("NATS_URL"), defNATSURL),
+		TelegramToken:   getenv("TELEGRAM_BOT_TOKEN"),
+		TelegramChatID:  getenv("TELEGRAM_CHAT_ID"),
+		TelegramBaseURL: getenv("TELEGRAM_BASE_URL"),
+		NATSURL:         orDefault(getenv("NATS_URL"), defNATSURL),
 		EnrichmentAddr: orDefault(getenv("ENRICHMENT_GRPC_ADDR"), defEnrichmentAddr),
 		QueueGroup:     orDefault(getenv("NOTIFIER_QUEUE_GROUP"), defQueueGroup),
 	}

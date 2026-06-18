@@ -3,7 +3,7 @@ REGISTRY  ?= ghcr.io/jacobtdang
 TAG       ?= dev
 PLATFORMS ?= linux/amd64,linux/arm64
 
-.PHONY: all proto build test test-race vet lint tidy docker buildx k3d-up k3d-down deploy clean run-local natsd inject-trade
+.PHONY: all proto build test test-race vet lint tidy docker buildx k3d-up k3d-down deploy clean run-local natsd inject-trade trader-keys verify-alerts
 
 all: test build
 
@@ -24,6 +24,11 @@ inject-trade:
 #   TRADER_PRIVATE_KEY=... make trader-keys
 trader-keys:
 	go run ./tools/deriveapikeys $(ARGS)
+
+# Headless end-to-end alert check (no real Telegram/RPC/keys): asserts an alert
+# reaches a mock Telegram. Exits non-zero on failure.
+verify-alerts:
+	bash scripts/verify-alerts.sh
 
 tidy:
 	go mod tidy

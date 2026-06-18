@@ -20,6 +20,7 @@ func TestLoad_Overrides(t *testing.T) {
 	cfg, err := Load(env(map[string]string{
 		"TELEGRAM_BOT_TOKEN":   "tok",
 		"TELEGRAM_CHAT_ID":     "42",
+		"TELEGRAM_BASE_URL":    "http://localhost:8099",
 		"NATS_URL":             "nats://localhost:4222",
 		"ENRICHMENT_GRPC_ADDR": "localhost:50052",
 		"NOTIFIER_QUEUE_GROUP": "n2",
@@ -28,8 +29,8 @@ func TestLoad_Overrides(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	want := Config{
-		TelegramToken: "tok", TelegramChatID: "42", NATSURL: "nats://localhost:4222",
-		EnrichmentAddr: "localhost:50052", QueueGroup: "n2",
+		TelegramToken: "tok", TelegramChatID: "42", TelegramBaseURL: "http://localhost:8099",
+		NATSURL: "nats://localhost:4222", EnrichmentAddr: "localhost:50052", QueueGroup: "n2",
 	}
 	if cfg != want {
 		t.Fatalf("got %+v, want %+v", cfg, want)
