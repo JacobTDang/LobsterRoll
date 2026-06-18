@@ -52,6 +52,37 @@ func rec(t *testing.T, s *Store, ev bus.TradeDetected) (Cohort, bool) {
 	return c, fire
 }
 
+// firedCount returns the number of rows in the fired table.
+func firedCount(t *testing.T, s *Store) int {
+	t.Helper()
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM fired`).Scan(&n); err != nil {
+		t.Fatalf("count fired: %v", err)
+	}
+	return n
+}
+
+func TestConsensus_ReapsDissipatedFiredRows(t *testing.T) {
+	clk := &clock{t: time.Unix(1_700_000_000, 0)}
+	s := openTemp(t, time.Hour, 3, clk.now)
+
+	// Three distinct wallets converge on token A -> fires; fired has its row.
+	rec(t, s, trade("0xa", "A", "buy", "10", "0.5"))
+	rec(t, s, trade("0xb", "A", "buy", "10", "0.5"))
+	_, fired := rec(t, s, trade("0xc", "A", "buy", "10", "0.5"))
+	if !fired || firedCount(t, s) != 1 {
+		t.Fatalf("fired=%v firedCount=%d, want true/1", fired, firedCount(t, s))
+	}
+
+	// Time passes beyond the window with no more A trades; a trade on a different
+	// token triggers the reaper, which must drop A's now-dissipated fired row.
+	clk.advance(2 * time.Hour)
+	rec(t, s, trade("0xz", "B", "buy", "10", "0.5"))
+	if got := firedCount(t, s); got != 0 {
+		t.Fatalf("firedCount = %d, want 0 (dissipated row reaped)", got)
+	}
+}
+
 func TestConsensus_FiresOnceThenOnGrowth(t *testing.T) {
 	clk := &clock{t: time.Unix(1_700_000_000, 0)}
 	s := openTemp(t, 6*time.Hour, 3, clk.now)

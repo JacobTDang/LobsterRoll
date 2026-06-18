@@ -112,6 +112,20 @@ func (s *Store) Record(ctx context.Context, ev bus.TradeDetected) (Cohort, bool,
 		return Cohort{}, false, fmt.Errorf("prune: %w", err)
 	}
 
+	// Reap fired rows whose cohort has fully dissipated (no events left in the
+	// window). Without this, a token+side that fires once and never trades again
+	// leaks its row forever. Keyed on "no in-window events" (NOT fired_unix,
+	// which tracks last growth, not last activity — an active-but-not-growing
+	// cohort must keep its high-water). The current event's token+side always has
+	// the just-inserted row, so it is never reaped here; decideFire handles it.
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM fired WHERE NOT EXISTS (
+			SELECT 1 FROM trade_events te
+			WHERE te.token_id = fired.token_id AND te.side = fired.side
+			  AND te.observed_unix >= ?)`, cutoff); err != nil {
+		return Cohort{}, false, fmt.Errorf("reap fired: %w", err)
+	}
+
 	rows, err := tx.QueryContext(ctx,
 		`SELECT wallet, SUM(usdc) FROM trade_events
 		 WHERE token_id = ? AND side = ? AND observed_unix >= ?
