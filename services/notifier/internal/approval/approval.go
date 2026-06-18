@@ -6,6 +6,8 @@ package approval
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -45,9 +47,8 @@ type Manager struct {
 	log    *slog.Logger
 
 	mu      sync.Mutex
-	nextKey int
-	pend    map[string]pending // shortKey -> pending
-	decided map[string]bool    // shortKey -> decided
+	pend    map[string]pending // callback key -> pending
+	decided map[string]bool    // callback key -> decided
 	halted  bool
 }
 
@@ -59,13 +60,22 @@ func New(tg Telegram, pub Decider, chatID string, log *slog.Logger) *Manager {
 	}
 }
 
+// proposalKey is a stable, unique callback key derived from the proposal id. It
+// survives restarts (so a stale button can never alias a different live
+// proposal) and stays well under Telegram's 64-byte callback_data limit.
+func proposalKey(proposalID string) string {
+	sum := sha256.Sum256([]byte(proposalID))
+	return hex.EncodeToString(sum[:8]) // 16 hex chars
+}
+
 // OnProposal posts a proposal with approve/reject buttons.
 func (m *Manager) OnProposal(ctx context.Context, p bus.OrderProposal) {
 	text := format.FormatProposal(p)
+	key := proposalKey(p.ID)
 
+	// Register before sending so a button tap can never race the map write.
 	m.mu.Lock()
-	m.nextKey++
-	key := strconv.Itoa(m.nextKey)
+	m.pend[key] = pending{proposalID: p.ID, text: text}
 	m.mu.Unlock()
 
 	kb := [][]telegram.InlineButton{{
@@ -75,16 +85,32 @@ func (m *Manager) OnProposal(ctx context.Context, p bus.OrderProposal) {
 	msgID, err := m.tg.SendKeyboard(ctx, m.chatID, text, kb)
 	if err != nil {
 		m.log.Error("send proposal failed", "id", p.ID, "err", err)
+		m.mu.Lock()
+		delete(m.pend, key)
+		m.mu.Unlock()
 		return
 	}
 	m.mu.Lock()
-	m.pend[key] = pending{proposalID: p.ID, messageID: msgID, text: text}
+	pend := m.pend[key]
+	pend.messageID = msgID
+	m.pend[key] = pend
 	m.mu.Unlock()
 	m.log.Info("proposal awaiting approval", "id", p.ID, "key", key)
 }
 
+// authorized reports whether chatID is the configured operator chat.
+func (m *Manager) authorized(chatID int64) bool {
+	return strconv.FormatInt(chatID, 10) == m.chatID
+}
+
 // HandleCallback turns a button tap into a decision (idempotently).
 func (m *Manager) HandleCallback(ctx context.Context, cb telegram.CallbackQuery) {
+	// Authorization: only act on taps from the operator chat.
+	if cb.Message == nil || !m.authorized(cb.Message.Chat.ID) {
+		m.log.Warn("ignoring callback from unauthorized chat")
+		_ = m.tg.AnswerCallback(ctx, cb.ID, "Unauthorized")
+		return
+	}
 	action, key, ok := ParseCallback(cb.Data)
 	if !ok {
 		_ = m.tg.AnswerCallback(ctx, cb.ID, "Unrecognized action")
@@ -127,8 +153,12 @@ func (m *Manager) HandleCallback(ctx context.Context, cb telegram.CallbackQuery)
 	m.log.Info("decision", "id", p.proposalID, "approved", approved, "by", by)
 }
 
-// HandleCommand handles /halt and /resume.
-func (m *Manager) HandleCommand(ctx context.Context, text, fromUsername string) {
+// HandleCommand handles /halt and /resume from the operator chat.
+func (m *Manager) HandleCommand(ctx context.Context, text string, chatID int64, fromUsername string) {
+	if !m.authorized(chatID) {
+		m.log.Warn("ignoring command from unauthorized chat", "chat", chatID)
+		return
+	}
 	by := "telegram:" + fromUsername
 	switch strings.TrimSpace(text) {
 	case "/halt":
@@ -138,7 +168,7 @@ func (m *Manager) HandleCommand(ctx context.Context, text, fromUsername string) 
 		if err := m.pub.PublishControl(bus.ControlMsg{Halted: true, By: by}); err != nil {
 			m.log.Error("publish halt failed", "err", err)
 		}
-		_ = m.tg.Send(ctx, m.chatID, "🛑 HALTED — downstream execution paused.")
+		_ = m.tg.Send(ctx, m.chatID, "🛑 HALT sent on control.halt — trader will refuse new orders.")
 	case "/resume":
 		m.mu.Lock()
 		m.halted = false
@@ -146,7 +176,7 @@ func (m *Manager) HandleCommand(ctx context.Context, text, fromUsername string) 
 		if err := m.pub.PublishControl(bus.ControlMsg{Halted: false, By: by}); err != nil {
 			m.log.Error("publish resume failed", "err", err)
 		}
-		_ = m.tg.Send(ctx, m.chatID, "▶️ RESUMED — execution re-enabled.")
+		_ = m.tg.Send(ctx, m.chatID, "▶️ RESUME sent on control.halt — execution re-enabled.")
 	}
 }
 

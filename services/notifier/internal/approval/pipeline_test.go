@@ -70,8 +70,12 @@ func TestPipeline_ProposalToApproved(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 
-	// Simulate the operator tapping ✅ (key "1" from the first proposal).
-	mgr.HandleCallback(ctx, telegram.CallbackQuery{ID: "cb", Data: "a:1", From: telegram.User{Username: "jacob"}})
+	// Simulate the operator tapping ✅ on the posted button, from the operator chat.
+	mgr.HandleCallback(ctx, telegram.CallbackQuery{
+		ID: "cb", Data: cbData(tg, 0),
+		From:    telegram.User{Username: "jacob"},
+		Message: &telegram.Message{Chat: telegram.Chat{ID: opChat}},
+	})
 
 	select {
 	case m := <-approved:
