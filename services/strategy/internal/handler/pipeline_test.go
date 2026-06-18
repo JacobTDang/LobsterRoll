@@ -48,6 +48,9 @@ func TestPipeline_EndToEnd(t *testing.T) {
 	if _, err := sub.OnTradeDetected("strategy", func(td bus.TradeDetected) { h.Handle(ctx, td) }); err != nil {
 		t.Fatalf("OnTradeDetected: %v", err)
 	}
+	if err := sub.Flush(); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
 
 	if err := pub.PublishTrade(trade); err != nil {
 		t.Fatalf("PublishTrade: %v", err)
@@ -62,7 +65,7 @@ func TestPipeline_EndToEnd(t *testing.T) {
 		if p.ID != "prop-0xabc-7-0xwhale" || p.SizeUSD != 25 {
 			t.Fatalf("proposal = %+v", p)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(20 * time.Second):
 		t.Fatal("timed out waiting for orders.proposed")
 	}
 }

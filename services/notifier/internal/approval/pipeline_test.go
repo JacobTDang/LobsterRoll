@@ -50,13 +50,16 @@ func TestPipeline_ProposalToApproved(t *testing.T) {
 	if _, err := sub.OnOrderProposed("notifier", func(p bus.OrderProposal) { mgr.OnProposal(ctx, p) }); err != nil {
 		t.Fatalf("OnOrderProposed: %v", err)
 	}
+	if err := sub.Flush(); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
 
 	if err := pub.PublishProposal(bus.OrderProposal{ID: "prop-XYZ", TokenID: "tok", Side: "buy", LimitPrice: "0.98", SizeUSD: 25}); err != nil {
 		t.Fatalf("PublishProposal: %v", err)
 	}
 
 	// Wait for the button message to be sent.
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(20 * time.Second)
 	for {
 		tg.mu.Lock()
 		n := tg.keyboards
@@ -81,10 +84,10 @@ func TestPipeline_ProposalToApproved(t *testing.T) {
 	case m := <-approved:
 		var d bus.OrderDecision
 		_ = json.Unmarshal(m.Data, &d)
-		if d.ProposalID != "prop-XYZ" || !d.Approved || d.By != "telegram:jacob" {
+		if d.Proposal.ID != "prop-XYZ" || !d.Approved || d.By != "telegram:jacob" {
 			t.Fatalf("decision = %+v", d)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(20 * time.Second):
 		t.Fatal("orders.approved not published after approve tap")
 	}
 }

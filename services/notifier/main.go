@@ -105,15 +105,23 @@ func pollUpdates(ctx context.Context, tg *telegram.Client, mgr *approval.Manager
 			if u.UpdateID >= offset {
 				offset = u.UpdateID + 1
 			}
+			// Dispatch concurrently so a rate-limited callback (which may sleep on a
+			// 429) can't block the poll loop or a /halt command behind it.
 			switch {
 			case u.CallbackQuery != nil:
-				dctx, cancel := detached(ctx)
-				mgr.HandleCallback(dctx, *u.CallbackQuery)
-				cancel()
+				cb := *u.CallbackQuery
+				go func() {
+					dctx, cancel := detached(ctx)
+					defer cancel()
+					mgr.HandleCallback(dctx, cb)
+				}()
 			case u.Message != nil && strings.HasPrefix(u.Message.Text, "/"):
-				dctx, cancel := detached(ctx)
-				mgr.HandleCommand(dctx, u.Message.Text, u.Message.Chat.ID, u.Message.From.Username)
-				cancel()
+				msg := u.Message
+				go func() {
+					dctx, cancel := detached(ctx)
+					defer cancel()
+					mgr.HandleCommand(dctx, msg.Text, msg.Chat.ID, msg.From.Username)
+				}()
 			}
 		}
 	}

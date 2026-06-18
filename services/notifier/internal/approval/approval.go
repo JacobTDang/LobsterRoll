@@ -34,9 +34,9 @@ type Telegram interface {
 }
 
 type pending struct {
-	proposalID string
-	messageID  int
-	text       string
+	proposal  bus.OrderProposal
+	messageID int
+	text      string
 }
 
 // Manager coordinates proposal approval over Telegram.
@@ -46,17 +46,16 @@ type Manager struct {
 	chatID string
 	log    *slog.Logger
 
-	mu      sync.Mutex
-	pend    map[string]pending // callback key -> pending
-	decided map[string]bool    // callback key -> decided
-	halted  bool
+	mu     sync.Mutex
+	pend   map[string]pending // callback key -> undecided pending (removed on decision)
+	halted bool
 }
 
 // New constructs a Manager.
 func New(tg Telegram, pub Decider, chatID string, log *slog.Logger) *Manager {
 	return &Manager{
 		tg: tg, pub: pub, chatID: chatID, log: log,
-		pend: map[string]pending{}, decided: map[string]bool{},
+		pend: map[string]pending{},
 	}
 }
 
@@ -68,14 +67,19 @@ func proposalKey(proposalID string) string {
 	return hex.EncodeToString(sum[:8]) // 16 hex chars
 }
 
-// OnProposal posts a proposal with approve/reject buttons.
+// OnProposal posts a proposal with approve/reject buttons. While halted it does
+// not post (defense-in-depth alongside the trader's control.halt gate).
 func (m *Manager) OnProposal(ctx context.Context, p bus.OrderProposal) {
+	if m.Halted() {
+		m.log.Warn("halted; not posting proposal for approval", "id", p.ID)
+		return
+	}
 	text := format.FormatProposal(p)
 	key := proposalKey(p.ID)
 
 	// Register before sending so a button tap can never race the map write.
 	m.mu.Lock()
-	m.pend[key] = pending{proposalID: p.ID, text: text}
+	m.pend[key] = pending{proposal: p, text: text}
 	m.mu.Unlock()
 
 	kb := [][]telegram.InlineButton{{
@@ -117,28 +121,26 @@ func (m *Manager) HandleCallback(ctx context.Context, cb telegram.CallbackQuery)
 		return
 	}
 
+	// Atomically claim the proposal by removing it: a second tap finds nothing
+	// (idempotent), and decided proposals don't accumulate in memory.
 	m.mu.Lock()
 	p, found := m.pend[key]
-	if !found {
-		m.mu.Unlock()
-		_ = m.tg.AnswerCallback(ctx, cb.ID, "Proposal expired")
-		return
+	if found {
+		delete(m.pend, key)
 	}
-	if m.decided[key] {
-		m.mu.Unlock()
-		_ = m.tg.AnswerCallback(ctx, cb.ID, "Already decided")
-		return
-	}
-	m.decided[key] = true
 	m.mu.Unlock()
+	if !found {
+		_ = m.tg.AnswerCallback(ctx, cb.ID, "Already decided or expired")
+		return
+	}
 
 	approved := action == "a"
 	by := "telegram:" + cb.From.Username
-	if err := m.pub.PublishDecision(bus.OrderDecision{ProposalID: p.proposalID, Approved: approved, By: by}); err != nil {
-		m.log.Error("publish decision failed", "id", p.proposalID, "err", err)
-		// Roll back so the operator can retry the tap.
+	if err := m.pub.PublishDecision(bus.OrderDecision{Proposal: p.proposal, Approved: approved, By: by}); err != nil {
+		m.log.Error("publish decision failed", "id", p.proposal.ID, "err", err)
+		// Restore so the operator can retry the tap.
 		m.mu.Lock()
-		m.decided[key] = false
+		m.pend[key] = p
 		m.mu.Unlock()
 		_ = m.tg.AnswerCallback(ctx, cb.ID, "Failed — try again")
 		return
@@ -150,7 +152,7 @@ func (m *Manager) HandleCallback(ctx context.Context, cb telegram.CallbackQuery)
 	}
 	_ = m.tg.AnswerCallback(ctx, cb.ID, verb)
 	_ = m.tg.EditMessageText(ctx, m.chatID, p.messageID, fmt.Sprintf("%s %s by @%s\n%s", mark, verb, cb.From.Username, p.text))
-	m.log.Info("decision", "id", p.proposalID, "approved", approved, "by", by)
+	m.log.Info("decision", "id", p.proposal.ID, "approved", approved, "by", by)
 }
 
 // HandleCommand handles /halt and /resume from the operator chat.

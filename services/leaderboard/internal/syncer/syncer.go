@@ -86,6 +86,10 @@ func (s *Syncer) syncOnce(ctx context.Context) error {
 		s.log.Warn("fetched empty watchset; skipping replace to avoid wiping watchset")
 		return nil
 	}
+	if len(wallets) < s.topN {
+		s.log.Warn("watchset smaller than configured top-N (upstream returned fewer/duplicate wallets)",
+			"got", len(wallets), "topN", s.topN)
+	}
 	d, err := s.store.Replace(ctx, wallets)
 	if err != nil {
 		return err

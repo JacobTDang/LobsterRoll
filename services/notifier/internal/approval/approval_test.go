@@ -175,7 +175,7 @@ func TestHandleCallback_Approve(t *testing.T) {
 		t.Fatalf("decisions = %d, want 1", pub.decisionCount())
 	}
 	d := pub.decisions[0]
-	if d.ProposalID != "prop-X" || !d.Approved || d.By != "telegram:me" {
+	if d.Proposal.ID != "prop-X" || !d.Approved || d.By != "telegram:me" {
 		t.Fatalf("decision = %+v", d)
 	}
 	if len(tg.answers) != 1 || tg.answers[0] != "Approved" {
@@ -204,8 +204,29 @@ func TestHandleCallback_Idempotent(t *testing.T) {
 	if pub.decisionCount() != 1 {
 		t.Fatalf("decisions = %d, want 1 (idempotent)", pub.decisionCount())
 	}
-	if last := tg.answers[len(tg.answers)-1]; last != "Already decided" {
-		t.Errorf("second tap answer = %q, want Already decided", last)
+	if last := tg.answers[len(tg.answers)-1]; last != "Already decided or expired" {
+		t.Errorf("second tap answer = %q, want Already decided or expired", last)
+	}
+}
+
+func TestOnProposal_HaltedSkips(t *testing.T) {
+	m, tg, _ := newMgr()
+	m.HandleCommand(context.Background(), "/halt", opChat, "me")
+	m.OnProposal(context.Background(), proposal)
+	if tg.keyboards != 0 {
+		t.Fatalf("posted %d proposals while halted, want 0", tg.keyboards)
+	}
+}
+
+func TestPend_BoundedAfterDecision(t *testing.T) {
+	m, tg, _ := newMgr()
+	m.OnProposal(context.Background(), proposal)
+	m.HandleCallback(context.Background(), cbFor(tg, 0, "me"))
+	m.mu.Lock()
+	n := len(m.pend)
+	m.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("pend size = %d after decision, want 0 (bounded)", n)
 	}
 }
 

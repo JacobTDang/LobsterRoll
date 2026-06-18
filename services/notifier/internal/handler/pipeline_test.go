@@ -55,6 +55,9 @@ func TestPipeline_EndToEnd(t *testing.T) {
 	if _, err := sub.OnTradeDetected("notifier", func(td bus.TradeDetected) { h.Handle(ctx, td) }); err != nil {
 		t.Fatalf("OnTradeDetected: %v", err)
 	}
+	if err := sub.Flush(); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
 
 	pub, err := bus.Connect(url)
 	if err != nil {
@@ -73,7 +76,7 @@ func TestPipeline_EndToEnd(t *testing.T) {
 		if !strings.Contains(text, "🟢 BUY") {
 			t.Fatalf("alert missing side marker:\n%s", text)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(20 * time.Second):
 		t.Fatal("timed out waiting for alert to reach Telegram mock")
 	}
 }

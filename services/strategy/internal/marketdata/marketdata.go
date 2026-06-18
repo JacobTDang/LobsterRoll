@@ -55,13 +55,12 @@ func Parse(data []byte, tokenID string) (Data, bool, error) {
 		if err := json.Unmarshal([]byte(m.OutcomePrices), &prices); err != nil {
 			continue
 		}
-		price := 0.0
-		if idx < len(prices) {
-			p, err := strconv.ParseFloat(prices[idx], 64)
-			if err != nil {
-				return Data{}, false, fmt.Errorf("parse price %q: %w", prices[idx], err)
-			}
-			price = p
+		if idx >= len(prices) {
+			continue // outcomePrices shorter than clobTokenIds — treat as not found
+		}
+		price, err := strconv.ParseFloat(prices[idx], 64)
+		if err != nil {
+			return Data{}, false, fmt.Errorf("parse price %q: %w", prices[idx], err)
 		}
 		return Data{
 			CurrentPrice: price,

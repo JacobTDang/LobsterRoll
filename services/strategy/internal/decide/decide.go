@@ -74,6 +74,10 @@ func Decide(t bus.TradeDetected, m Market, p Policy) Outcome {
 	if m.LiquidityUSD < p.MinLiquidityUSD {
 		return skip(fmt.Sprintf("insufficient liquidity ($%.0f < $%.0f)", m.LiquidityUSD, p.MinLiquidityUSD))
 	}
+	if m.CurrentPrice <= 0 {
+		// No live price → the slippage guard would be meaningless; refuse.
+		return skip("no live market price")
+	}
 	if !WithinSlippage(t.Side, whalePrice, m.CurrentPrice, p.MaxSlippage) {
 		return skip("price moved beyond max slippage")
 	}

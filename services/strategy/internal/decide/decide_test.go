@@ -114,6 +114,7 @@ func TestDecide_Skips(t *testing.T) {
 		{"not allowed", goodTrade, mod(goodMarket, func(m *Market) { m.Allowed = false }), goodPolicy},
 		{"low liquidity", goodTrade, mod(goodMarket, func(m *Market) { m.LiquidityUSD = 500 }), goodPolicy},
 		{"slippage", goodTrade, mod(goodMarket, func(m *Market) { m.CurrentPrice = 1.00 }), goodPolicy},
+		{"no live price", goodTrade, mod(goodMarket, func(m *Market) { m.CurrentPrice = 0 }), goodPolicy},
 		{
 			"below min size", goodTrade, goodMarket,
 			Policy{Sizing: SizingProportional, Proportion: 0.01, MinSizeUSD: 5, MaxSizeUSD: 100, MaxSlippage: 0.03, MinLiquidityUSD: 1000},
