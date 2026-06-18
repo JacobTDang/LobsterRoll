@@ -21,7 +21,7 @@ jobs:
         run: go test -race ./...
       - name: build all services
         run: |
-          for s in leaderboard watcher enrichment strategy trader notifier; do
+          for s in leaderboard watcher enrichment strategy trader notifier consensus; do
             echo ">> $s"
             CGO_ENABLED=0 go build -o /dev/null ./services/$s
           done
