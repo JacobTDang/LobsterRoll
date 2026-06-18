@@ -1,0 +1,97 @@
+package selection
+
+import (
+	"reflect"
+	"testing"
+)
+
+func TestSelect_RanksByScore(t *testing.T) {
+	cands := []Candidate{
+		{Wallet: "0xlow"}, {Wallet: "0xhigh"}, {Wallet: "0xmid"},
+	}
+	stats := map[string]Stats{
+		// score = winRate * log1p(pnl)
+		"0xhigh": {WinRate: 0.9, ResolvedMarkets: 50, RealizedPnL: 1_000_000}, // ~12.4
+		"0xmid":  {WinRate: 0.6, ResolvedMarkets: 50, RealizedPnL: 100_000},   // ~6.9
+		"0xlow":  {WinRate: 0.5, ResolvedMarkets: 50, RealizedPnL: 1_000},     // ~3.45
+	}
+	got := Select(cands, stats, 20, 10)
+	want := []string{"0xhigh", "0xmid", "0xlow"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Select = %v, want %v", got, want)
+	}
+}
+
+func TestSelect_ExcludesOneHitWonder(t *testing.T) {
+	cands := []Candidate{{Wallet: "0xpro"}, {Wallet: "0xlucky"}}
+	stats := map[string]Stats{
+		// Lucky has a monster pnl but only 1 resolved market: excluded by minResolved.
+		"0xlucky": {WinRate: 1.0, ResolvedMarkets: 1, RealizedPnL: 10_000_000},
+		"0xpro":   {WinRate: 0.7, ResolvedMarkets: 40, RealizedPnL: 500_000},
+	}
+	got := Select(cands, stats, 20, 10)
+	want := []string{"0xpro"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Select = %v, want %v (one-hit-wonder must be excluded)", got, want)
+	}
+}
+
+func TestSelect_MissingStatsExcluded(t *testing.T) {
+	cands := []Candidate{{Wallet: "0xa"}, {Wallet: "0xb"}}
+	stats := map[string]Stats{
+		"0xa": {WinRate: 0.8, ResolvedMarkets: 30, RealizedPnL: 1000},
+		// 0xb has no stats -> excluded.
+	}
+	got := Select(cands, stats, 20, 10)
+	want := []string{"0xa"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Select = %v, want %v", got, want)
+	}
+}
+
+func TestSelect_TopNTruncates(t *testing.T) {
+	cands := []Candidate{{Wallet: "0xa"}, {Wallet: "0xb"}, {Wallet: "0xc"}}
+	stats := map[string]Stats{
+		"0xa": {WinRate: 0.9, ResolvedMarkets: 30, RealizedPnL: 1_000_000},
+		"0xb": {WinRate: 0.8, ResolvedMarkets: 30, RealizedPnL: 1_000_000},
+		"0xc": {WinRate: 0.7, ResolvedMarkets: 30, RealizedPnL: 1_000_000},
+	}
+	got := Select(cands, stats, 20, 2)
+	want := []string{"0xa", "0xb"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Select = %v, want %v", got, want)
+	}
+}
+
+func TestSelect_DeterministicTieBreak(t *testing.T) {
+	cands := []Candidate{{Wallet: "0xc"}, {Wallet: "0xa"}, {Wallet: "0xb"}}
+	// Identical stats -> identical scores; tie-break is wallet ascending.
+	st := Stats{WinRate: 0.7, ResolvedMarkets: 30, RealizedPnL: 50_000}
+	stats := map[string]Stats{"0xa": st, "0xb": st, "0xc": st}
+	got := Select(cands, stats, 20, 10)
+	want := []string{"0xa", "0xb", "0xc"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Select = %v, want %v (deterministic tie-break)", got, want)
+	}
+}
+
+func TestSelect_NegativePnLScoresZero(t *testing.T) {
+	cands := []Candidate{{Wallet: "0xloser"}, {Wallet: "0xwinner"}}
+	stats := map[string]Stats{
+		"0xloser":  {WinRate: 0.5, ResolvedMarkets: 30, RealizedPnL: -100_000},
+		"0xwinner": {WinRate: 0.4, ResolvedMarkets: 30, RealizedPnL: 10},
+	}
+	got := Select(cands, stats, 20, 10)
+	// loser scores 0 (clamped pnl), winner scores >0 -> winner ranks first.
+	want := []string{"0xwinner", "0xloser"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Select = %v, want %v", got, want)
+	}
+}
+
+func TestSelect_Empty(t *testing.T) {
+	got := Select(nil, map[string]Stats{}, 20, 10)
+	if len(got) != 0 {
+		t.Errorf("Select(nil) = %v, want empty", got)
+	}
+}

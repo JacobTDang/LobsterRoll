@@ -8,6 +8,7 @@ import (
 	"time"
 
 	lobsterrollv1 "github.com/JacobTDang/LobsterRoll/gen/go"
+	"github.com/JacobTDang/LobsterRoll/services/leaderboard/internal/store"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -20,11 +21,21 @@ type fakeLister struct {
 	err      error
 	lastSync int64
 	syncErr  error
+	stats    map[string]store.StatsRecord
+	statsErr error
 }
 
 func (f fakeLister) List(context.Context) ([]string, error) { return f.wallets, f.err }
 
 func (f fakeLister) LastSync(context.Context) (int64, error) { return f.lastSync, f.syncErr }
+
+func (f fakeLister) GetStats(_ context.Context, wallet string) (store.StatsRecord, bool, error) {
+	if f.statsErr != nil {
+		return store.StatsRecord{}, false, f.statsErr
+	}
+	rec, ok := f.stats[wallet]
+	return rec, ok, nil
+}
 
 func newTestClient(t *testing.T, l Lister) (*Server, lobsterrollv1.LeaderboardClient) {
 	t.Helper()
@@ -237,4 +248,56 @@ func waitFor(t *testing.T, cond func() bool) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatal("condition not met within deadline")
+}
+
+func TestGetWalletStats_Found(t *testing.T) {
+	const w = "0xf0318c32136c2db7fec88b84869aee6a1106c80c"
+	rec := store.StatsRecord{
+		Wallet: w, WinRate: 0.65, ResolvedMarkets: 29, RealizedPnL: 31_000_000,
+		Profit30D: 1234.5, PortfolioValue: 999.9, TradedMarkets: 40, ComputedUnix: 1700000000,
+	}
+	_, client := newTestClient(t, fakeLister{stats: map[string]store.StatsRecord{w: rec}})
+
+	// Request with mixed-case wallet to prove normalization before lookup.
+	resp, err := client.GetWalletStats(context.Background(),
+		&lobsterrollv1.GetWalletStatsRequest{Wallet: "0xF0318C32136C2DB7FEC88B84869AEE6A1106C80C"})
+	if err != nil {
+		t.Fatalf("GetWalletStats: %v", err)
+	}
+	if !resp.GetFound() {
+		t.Fatal("Found = false, want true")
+	}
+	if resp.GetWallet() != w || resp.GetWinRate() != 0.65 || resp.GetResolvedMarkets() != 29 {
+		t.Errorf("resp = %+v", resp)
+	}
+	if resp.GetRealizedPnl() != 31_000_000 || resp.GetProfit_30D() != 1234.5 ||
+		resp.GetPortfolioValue() != 999.9 || resp.GetTradedMarkets() != 40 ||
+		resp.GetComputedUnix() != 1700000000 {
+		t.Errorf("resp = %+v", resp)
+	}
+}
+
+func TestGetWalletStats_NotFound(t *testing.T) {
+	const w = "0xf0318c32136c2db7fec88b84869aee6a1106c80c"
+	_, client := newTestClient(t, fakeLister{stats: map[string]store.StatsRecord{}})
+	resp, err := client.GetWalletStats(context.Background(),
+		&lobsterrollv1.GetWalletStatsRequest{Wallet: w})
+	if err != nil {
+		t.Fatalf("GetWalletStats: %v", err)
+	}
+	if resp.GetFound() {
+		t.Fatal("Found = true, want false for unknown wallet")
+	}
+	if resp.GetWallet() != w {
+		t.Errorf("Wallet = %q, want echoed %q", resp.GetWallet(), w)
+	}
+}
+
+func TestGetWalletStats_InvalidWallet(t *testing.T) {
+	_, client := newTestClient(t, fakeLister{})
+	_, err := client.GetWalletStats(context.Background(),
+		&lobsterrollv1.GetWalletStatsRequest{Wallet: "not-an-address"})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("code = %v, want InvalidArgument", status.Code(err))
+	}
 }

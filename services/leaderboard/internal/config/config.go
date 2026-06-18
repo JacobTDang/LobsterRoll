@@ -19,6 +19,15 @@ type Config struct {
 	APIBase  string
 	DBPath   string
 	GRPCAddr string
+
+	// Stats pipeline (per-wallet consistency stats + selection).
+	DataAPIBase        string        // data-api host for per-wallet crawls
+	StatsMinResolved   int           // exclude wallets with fewer resolved markets
+	CandidateTopK      int           // top-K per window pulled into the candidate pool
+	StatsMaxCandidates int           // cap on candidates crawled per refresh
+	StatsMaxActivity   int           // cap on activity rows fetched per wallet
+	StatsConcurrency   int           // max concurrent wallet crawls
+	StatsRefresh       time.Duration // how often to rebuild the stats/watchset
 }
 
 // Defaults (also documented in .env.example). Per project decision the default
@@ -31,6 +40,14 @@ const (
 	defAPIBase  = client.DefaultBaseURL
 	defDBPath   = "watchset.db"
 	defGRPCAddr = ":50051"
+
+	defDataAPIBase        = "https://data-api.polymarket.com"
+	defStatsMinResolved   = 20
+	defCandidateTopK      = 50
+	defStatsMaxCandidates = 60
+	defStatsMaxActivity   = 3000
+	defStatsConcurrency   = 8
+	defStatsRefresh       = 12 * time.Hour
 )
 
 // Load resolves config using getenv (e.g. os.Getenv), applying defaults and
@@ -44,6 +61,14 @@ func Load(getenv func(string) string) (Config, error) {
 		APIBase:  orDefault(getenv("LEADERBOARD_API_BASE"), defAPIBase),
 		DBPath:   orDefault(getenv("LEADERBOARD_DB_PATH"), defDBPath),
 		GRPCAddr: orDefault(getenv("LEADERBOARD_GRPC_ADDR"), defGRPCAddr),
+
+		DataAPIBase:        orDefault(getenv("LEADERBOARD_DATA_API_BASE"), defDataAPIBase),
+		StatsMinResolved:   defStatsMinResolved,
+		CandidateTopK:      defCandidateTopK,
+		StatsMaxCandidates: defStatsMaxCandidates,
+		StatsMaxActivity:   defStatsMaxActivity,
+		StatsConcurrency:   defStatsConcurrency,
+		StatsRefresh:       defStatsRefresh,
 	}
 
 	if v := getenv("LEADERBOARD_TOP_N"); v != "" {
@@ -61,6 +86,32 @@ func Load(getenv func(string) string) (Config, error) {
 		cfg.Interval = d
 	}
 
+	for _, p := range []struct {
+		key string
+		dst *int
+	}{
+		{"STATS_MIN_RESOLVED", &cfg.StatsMinResolved},
+		{"CANDIDATE_TOPK", &cfg.CandidateTopK},
+		{"STATS_MAX_CANDIDATES", &cfg.StatsMaxCandidates},
+		{"STATS_MAX_ACTIVITY_ROWS", &cfg.StatsMaxActivity},
+		{"STATS_CONCURRENCY", &cfg.StatsConcurrency},
+	} {
+		if v := getenv(p.key); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return Config{}, fmt.Errorf("%s: %w", p.key, err)
+			}
+			*p.dst = n
+		}
+	}
+	if v := getenv("STATS_REFRESH_INTERVAL"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("STATS_REFRESH_INTERVAL: %w", err)
+		}
+		cfg.StatsRefresh = d
+	}
+
 	if cfg.Metric != client.MetricPNL && cfg.Metric != client.MetricVolume {
 		return Config{}, fmt.Errorf("LEADERBOARD_METRIC %q: want pnl or volume", cfg.Metric)
 	}
@@ -72,6 +123,24 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	if cfg.Interval <= 0 {
 		return Config{}, fmt.Errorf("LEADERBOARD_SYNC_INTERVAL must be > 0, got %s", cfg.Interval)
+	}
+	if cfg.StatsMinResolved < 0 {
+		return Config{}, fmt.Errorf("STATS_MIN_RESOLVED must be >= 0, got %d", cfg.StatsMinResolved)
+	}
+	if cfg.CandidateTopK <= 0 {
+		return Config{}, fmt.Errorf("CANDIDATE_TOPK must be > 0, got %d", cfg.CandidateTopK)
+	}
+	if cfg.StatsMaxCandidates <= 0 {
+		return Config{}, fmt.Errorf("STATS_MAX_CANDIDATES must be > 0, got %d", cfg.StatsMaxCandidates)
+	}
+	if cfg.StatsMaxActivity <= 0 {
+		return Config{}, fmt.Errorf("STATS_MAX_ACTIVITY_ROWS must be > 0, got %d", cfg.StatsMaxActivity)
+	}
+	if cfg.StatsConcurrency <= 0 {
+		return Config{}, fmt.Errorf("STATS_CONCURRENCY must be > 0, got %d", cfg.StatsConcurrency)
+	}
+	if cfg.StatsRefresh <= 0 {
+		return Config{}, fmt.Errorf("STATS_REFRESH_INTERVAL must be > 0, got %s", cfg.StatsRefresh)
 	}
 	return cfg, nil
 }

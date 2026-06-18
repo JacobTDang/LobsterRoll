@@ -133,6 +133,59 @@ func (c *Client) Fetch(ctx context.Context, metric Metric, window Window, topN i
 	return wallets, nil
 }
 
+// FetchEntries returns up to topN leaderboard entries (normalized wallet +
+// metric amount) for the given metric and window, in leaderboard order. Unlike
+// Fetch it preserves the per-wallet amount so callers can build a candidate
+// pool keyed by e.g. 30d profit. Wallets are lowercased and de-duplicated
+// (first-seen wins). An empty result is treated as a failed fetch.
+func (c *Client) FetchEntries(ctx context.Context, metric Metric, window Window, topN int) ([]Entry, error) {
+	if topN <= 0 {
+		return nil, fmt.Errorf("topN must be > 0, got %d (lb-api treats limit=0 as unlimited)", topN)
+	}
+	path, err := metric.path()
+	if err != nil {
+		return nil, err
+	}
+	if !ValidWindow(window) {
+		return nil, fmt.Errorf("invalid window %q (want one of 1d, 7d, 30d, all)", window)
+	}
+
+	q := url.Values{}
+	q.Set("window", string(window))
+	q.Set("limit", strconv.Itoa(topN))
+	endpoint := c.baseURL + path + "?" + q.Encode()
+
+	body, err := c.fetchBody(ctx, endpoint, path)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := ParseLeaderboard(body)
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]struct{}, len(entries))
+	out := make([]Entry, 0, len(entries))
+	for _, e := range entries {
+		addr, ok := chain.NormalizeAddress(e.Wallet)
+		if !ok {
+			continue
+		}
+		if _, dup := seen[addr]; dup {
+			continue
+		}
+		seen[addr] = struct{}{}
+		out = append(out, Entry{Wallet: addr, Amount: e.Amount})
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("leaderboard %s: returned no wallets", path)
+	}
+	if len(out) > topN {
+		out = out[:topN]
+	}
+	return out, nil
+}
+
 // retry tuning. Kept short so tests run fast.
 const (
 	maxAttempts   = 3

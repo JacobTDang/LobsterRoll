@@ -7,15 +7,18 @@ import (
 	"sync"
 
 	lobsterrollv1 "github.com/JacobTDang/LobsterRoll/gen/go"
+	"github.com/JacobTDang/LobsterRoll/pkg/chain"
+	"github.com/JacobTDang/LobsterRoll/services/leaderboard/internal/store"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-// Lister provides the current watchset and its last sync time. *store.Store
-// satisfies it.
+// Lister provides the current watchset, its last sync time, and per-wallet
+// consistency stats. *store.Store satisfies it.
 type Lister interface {
 	List(ctx context.Context) ([]string, error)
 	LastSync(ctx context.Context) (int64, error)
+	GetStats(ctx context.Context, wallet string) (store.StatsRecord, bool, error)
 }
 
 // subBuffer is the per-subscriber channel depth. Watchset changes are
@@ -60,6 +63,34 @@ func (s *Server) GetWatchset(ctx context.Context, _ *lobsterrollv1.GetWatchsetRe
 		return nil, err
 	}
 	return &lobsterrollv1.GetWatchsetResponse{Wallets: wallets, LastSyncedUnix: lastSync}, nil
+}
+
+// GetWalletStats returns our cached consistency stats for a wallet. Found is
+// false (and the other fields zero) when we have not computed stats for it yet.
+// The request wallet is normalized to match how stats are keyed in the store.
+func (s *Server) GetWalletStats(ctx context.Context, req *lobsterrollv1.GetWalletStatsRequest) (*lobsterrollv1.WalletStats, error) {
+	wallet, ok := chain.NormalizeAddress(req.GetWallet())
+	if !ok {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid wallet %q", req.GetWallet())
+	}
+	rec, found, err := s.store.GetStats(ctx, wallet)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return &lobsterrollv1.WalletStats{Wallet: wallet, Found: false}, nil
+	}
+	return &lobsterrollv1.WalletStats{
+		Wallet:          rec.Wallet,
+		WinRate:         rec.WinRate,
+		ResolvedMarkets: rec.ResolvedMarkets,
+		RealizedPnl:     rec.RealizedPnL,
+		Profit_30D:      rec.Profit30D,
+		PortfolioValue:  rec.PortfolioValue,
+		TradedMarkets:   rec.TradedMarkets,
+		ComputedUnix:    rec.ComputedUnix,
+		Found:           true,
+	}, nil
 }
 
 // StreamWatchset streams the watchset to the client. It subscribes first (to

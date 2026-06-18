@@ -16,6 +16,7 @@ import (
 	"github.com/JacobTDang/LobsterRoll/pkg/svc"
 	"github.com/JacobTDang/LobsterRoll/services/leaderboard/internal/client"
 	"github.com/JacobTDang/LobsterRoll/services/leaderboard/internal/config"
+	"github.com/JacobTDang/LobsterRoll/services/leaderboard/internal/dataapi"
 	"github.com/JacobTDang/LobsterRoll/services/leaderboard/internal/server"
 	"github.com/JacobTDang/LobsterRoll/services/leaderboard/internal/store"
 	"github.com/JacobTDang/LobsterRoll/services/leaderboard/internal/syncer"
@@ -32,7 +33,9 @@ func run(ctx context.Context, log *slog.Logger) error {
 	}
 	log.Info("config loaded",
 		"metric", cfg.Metric, "window", cfg.Window, "topN", cfg.TopN,
-		"interval", cfg.Interval, "grpc", cfg.GRPCAddr, "db", cfg.DBPath)
+		"interval", cfg.Interval, "grpc", cfg.GRPCAddr, "db", cfg.DBPath,
+		"dataAPI", cfg.DataAPIBase, "statsRefresh", cfg.StatsRefresh,
+		"minResolved", cfg.StatsMinResolved, "candidateTopK", cfg.CandidateTopK)
 
 	st, err := store.Open(ctx, cfg.DBPath)
 	if err != nil {
@@ -41,8 +44,24 @@ func run(ctx context.Context, log *slog.Logger) error {
 	defer st.Close()
 
 	srv := server.New(st)
-	sy := syncer.New(client.New(cfg.APIBase, nil), st, srv,
-		cfg.Metric, cfg.Window, cfg.TopN, cfg.Interval, log)
+	// The watchset is driven by the consistency-stats pipeline: build a
+	// candidate pool from the leaderboard, crawl each candidate's data-api
+	// history into win-rate/PnL stats, then select the most consistent top-N.
+	sy := syncer.NewStats(
+		client.New(cfg.APIBase, nil),
+		dataapi.New(cfg.DataAPIBase, nil),
+		st, srv,
+		syncer.StatsConfig{
+			Metric:        cfg.Metric,
+			CandidateTopK: cfg.CandidateTopK,
+			MaxCandidates: cfg.StatsMaxCandidates,
+			MaxActivity:   cfg.StatsMaxActivity,
+			MinResolved:   cfg.StatsMinResolved,
+			TopN:          cfg.TopN,
+			Interval:      cfg.StatsRefresh,
+			Concurrency:   cfg.StatsConcurrency,
+		},
+		log)
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {
