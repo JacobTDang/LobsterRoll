@@ -3,7 +3,7 @@ REGISTRY  ?= ghcr.io/jacobtdang
 TAG       ?= dev
 PLATFORMS ?= linux/amd64,linux/arm64
 
-.PHONY: all proto build test test-race vet lint tidy docker buildx k3d-up k3d-down deploy clean run-local natsd inject-trade trader-keys verify-alerts
+.PHONY: all proto build test test-race vet lint tidy docker buildx k3d-up k3d-down deploy clean run-local natsd inject-trade trader-keys verify-alerts tg-chatid
 
 all: test build
 
@@ -29,6 +29,11 @@ trader-keys:
 # reaches a mock Telegram. Exits non-zero on failure.
 verify-alerts:
 	bash scripts/verify-alerts.sh
+
+# Print your chat id (message your bot first):
+#   TELEGRAM_BOT_TOKEN=... make tg-chatid
+tg-chatid:
+	go run ./tools/tgchatid
 
 tidy:
 	go mod tidy
