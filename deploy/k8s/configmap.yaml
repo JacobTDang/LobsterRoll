@@ -26,6 +26,9 @@ data:
   CONSENSUS_MIN_WALLETS: "3"
   CONSENSUS_WINDOW: "6h"
 
+  # ---- notifier ----
+  ALERT_DEDUP_TTL: "24h" # suppress duplicate trade alerts for this long
+
   # ---- execution policy + risk caps (trader) ----
   EXECUTION_MODE: "approval"
   MAX_USD_PER_TRADE: "25"

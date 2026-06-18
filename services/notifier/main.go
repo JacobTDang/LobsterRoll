@@ -16,6 +16,7 @@ import (
 	"github.com/JacobTDang/LobsterRoll/pkg/svc"
 	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/approval"
 	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/config"
+	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/dedup"
 	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/handler"
 	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/telegram"
 )
@@ -62,7 +63,7 @@ func run(ctx context.Context, log *slog.Logger) error {
 	}
 	defer sub.Close()
 
-	alerts := handler.New(enrich, leaderboard, tg, cfg.TelegramChatID, log)
+	alerts := handler.New(enrich, leaderboard, tg, cfg.TelegramChatID, dedup.New(cfg.AlertDedupTTL), log)
 	mgr := approval.New(tg, pub, cfg.TelegramChatID, log)
 
 	// One-way alerts on every detected trade.

@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func env(m map[string]string) func(string) string {
 	return func(k string) string { return m[k] }
@@ -12,7 +15,8 @@ func TestLoad_Defaults(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	if cfg.NATSURL != defNATSURL || cfg.EnrichmentAddr != defEnrichmentAddr ||
-		cfg.LeaderboardAddr != defLeaderboardAddr || cfg.QueueGroup != defQueueGroup {
+		cfg.LeaderboardAddr != defLeaderboardAddr || cfg.QueueGroup != defQueueGroup ||
+		cfg.AlertDedupTTL != defAlertDedupTTL {
 		t.Fatalf("defaults not applied: %+v", cfg)
 	}
 }
@@ -26,6 +30,7 @@ func TestLoad_Overrides(t *testing.T) {
 		"ENRICHMENT_GRPC_ADDR":  "localhost:50052",
 		"LEADERBOARD_GRPC_ADDR": "localhost:50051",
 		"NOTIFIER_QUEUE_GROUP":  "n2",
+		"ALERT_DEDUP_TTL":       "1h",
 	}))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -33,7 +38,7 @@ func TestLoad_Overrides(t *testing.T) {
 	want := Config{
 		TelegramToken: "tok", TelegramChatID: "42", TelegramBaseURL: "http://localhost:8099",
 		NATSURL: "nats://localhost:4222", EnrichmentAddr: "localhost:50052",
-		LeaderboardAddr: "localhost:50051", QueueGroup: "n2",
+		LeaderboardAddr: "localhost:50051", QueueGroup: "n2", AlertDedupTTL: time.Hour,
 	}
 	if cfg != want {
 		t.Fatalf("got %+v, want %+v", cfg, want)

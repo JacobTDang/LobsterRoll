@@ -5,7 +5,9 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"strings"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -13,6 +15,7 @@ import (
 
 	lobsterrollv1 "github.com/JacobTDang/LobsterRoll/gen/go"
 	"github.com/JacobTDang/LobsterRoll/pkg/bus"
+	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/dedup"
 	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/format"
 )
 
@@ -39,18 +42,36 @@ type Handler struct {
 	stats  WhaleStatsLookuper
 	sender Sender
 	chatID string
+	dedup  *dedup.TTLSet // suppresses duplicate trade alerts (watcher is at-least-once)
 	log    *slog.Logger
 }
 
 // New constructs a Handler. stats may be nil to disable whale track-record
-// enrichment (alerts then render without the stats line).
-func New(enrich Enricher, stats WhaleStatsLookuper, sender Sender, chatID string, log *slog.Logger) *Handler {
-	return &Handler{enrich: enrich, stats: stats, sender: sender, chatID: chatID, log: log}
+// enrichment (alerts then render without the stats line). dd dedups repeated
+// trade alerts within its TTL.
+func New(enrich Enricher, stats WhaleStatsLookuper, sender Sender, chatID string, dd *dedup.TTLSet, log *slog.Logger) *Handler {
+	return &Handler{enrich: enrich, stats: stats, sender: sender, chatID: chatID, dedup: dd, log: log}
 }
 
-// Handle enriches td, formats an alert, and sends it. Errors are logged, not
-// returned, so one bad trade can't stall the consumer.
+// tradeKey uniquely identifies a detected trade. The on-chain (tx, logIndex)
+// pins the exact fill; wallet/token/side guard against any aggregation reuse.
+// Two legs of one tx (a rotation: sell A, buy B) differ by logIndex/token/side
+// and are NOT deduped — only a true re-emit of the same fill is.
+func tradeKey(td bus.TradeDetected) string {
+	return fmt.Sprintf("%s:%d:%s:%s:%s", td.TxHash, td.LogIndex,
+		strings.ToLower(td.Wallet), td.TokenID, strings.ToLower(td.Side))
+}
+
+// Handle enriches td, formats an alert, and sends it (once). A trade already
+// alerted within the dedup TTL is skipped. Errors are logged, not returned, so
+// one bad trade can't stall the consumer.
 func (h *Handler) Handle(ctx context.Context, td bus.TradeDetected) {
+	key := tradeKey(td)
+	if h.dedup != nil && !h.dedup.Add(key) {
+		h.log.Info("duplicate trade alert suppressed", "wallet", td.Wallet, "tx", td.TxHash)
+		return
+	}
+
 	market := h.resolveMarket(ctx, td.TokenID)
 
 	// Best-effort whale track record: a lookup failure or unknown wallet just
@@ -59,6 +80,10 @@ func (h *Handler) Handle(ctx context.Context, td bus.TradeDetected) {
 
 	text := format.FormatAlert(td, market, ws)
 	if err := h.sender.Send(ctx, h.chatID, text); err != nil {
+		// Un-cache so a redelivery can retry (a failed send isn't a sent message).
+		if h.dedup != nil {
+			h.dedup.Remove(key)
+		}
 		h.log.Error("send alert failed", "wallet", td.Wallet, "tx", td.TxHash, "err", err)
 		return
 	}
