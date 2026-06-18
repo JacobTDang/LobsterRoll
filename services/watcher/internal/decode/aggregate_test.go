@@ -53,7 +53,7 @@ func TestAggregateByTx_SeparatesGroups(t *testing.T) {
 }
 
 func TestAggregateByTx_SingleFillUnchanged(t *testing.T) {
-	// A lone maker fill aggregates to the same values TradeFor would produce.
+	// A lone maker fill aggregates to the same values tradeFromFill would produce.
 	fills := []Fill{fill("0xw", "t1", false, 2_117_520, 5_190_000, "0xtx", 9)}
 	got := AggregateByTx(fills)
 	if len(got) != 1 {

@@ -63,7 +63,7 @@ func TestDecodeLegacy_Golden(t *testing.T) {
 	}
 
 	// Maker's perspective: SELL 5.19 shares at 0.408.
-	tr, ok := of.TradeFor(of.Maker)
+	tr, ok := tradeFor(of, of.Maker)
 	if !ok {
 		t.Fatal("maker should match")
 	}

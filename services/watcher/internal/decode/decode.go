@@ -104,7 +104,7 @@ func DecodeOrderFilled(log types.Log) (OrderFilled, error) {
 //
 // Side is inferred from which asset is collateral (assetId 0 == USDC): if the
 // maker provides USDC it is a BUY, if the maker provides the token it is a SELL.
-// The result is normalized to the same OrderFilled shape so TradeFor is shared.
+// The result is normalized to the same OrderFilled shape so FillFor is shared.
 func DecodeOrderFilledLegacy(log types.Log) (OrderFilled, error) {
 	if len(log.Topics) != 4 {
 		return OrderFilled{}, fmt.Errorf("legacy OrderFilled: want 4 topics, got %d", len(log.Topics))
@@ -212,15 +212,6 @@ func (of OrderFilled) FillFor(wallet common.Address) (Fill, bool) {
 	}, true
 }
 
-// TradeFor returns the trade as seen by wallet, or ok=false if wallet is neither
-// the maker nor the taker of this fill.
-func (of OrderFilled) TradeFor(wallet common.Address) (Trade, bool) {
-	f, ok := of.FillFor(wallet)
-	if !ok {
-		return Trade{}, false
-	}
-	return tradeFromFill(f), true
-}
 
 func tradeFromFill(f Fill) Trade {
 	side := "sell"

@@ -12,6 +12,16 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
+// tradeFor mirrors the production path (FillFor -> tradeFromFill) so these
+// perspective tests exercise the real functions without a thin wrapper.
+func tradeFor(of OrderFilled, wallet common.Address) (Trade, bool) {
+	f, ok := of.FillFor(wallet)
+	if !ok {
+		return Trade{}, false
+	}
+	return tradeFromFill(f), true
+}
+
 // rawLog mirrors the fields we captured from eth_getLogs in the golden fixture.
 type rawLog struct {
 	Address     string   `json:"address"`
@@ -103,7 +113,7 @@ func TestTradeFor_Perspective(t *testing.T) {
 	}
 
 	// Maker's perspective: maker side is BUY.
-	tr, ok := of.TradeFor(common.HexToAddress(wMaker0))
+	tr, ok := tradeFor(of, common.HexToAddress(wMaker0))
 	if !ok {
 		t.Fatal("maker should match")
 	}
@@ -127,7 +137,7 @@ func TestTradeFor_Perspective(t *testing.T) {
 	}
 
 	// Taker's perspective on the same fill: side is inverted (SELL), same price/size.
-	tr2, ok := of.TradeFor(common.HexToAddress(wTaker0))
+	tr2, ok := tradeFor(of, common.HexToAddress(wTaker0))
 	if !ok {
 		t.Fatal("taker should match")
 	}
@@ -142,7 +152,7 @@ func TestTradeFor_Perspective(t *testing.T) {
 	}
 
 	// An unrelated wallet does not match.
-	if _, ok := of.TradeFor(common.HexToAddress("0x000000000000000000000000000000000000dead")); ok {
+	if _, ok := tradeFor(of, common.HexToAddress("0x000000000000000000000000000000000000dead")); ok {
 		t.Error("unrelated wallet should not match")
 	}
 }
@@ -156,7 +166,7 @@ func TestTradeFor_SellSide(t *testing.T) {
 		t.Fatalf("Side = %d, want 1 (SELL)", of.Side)
 	}
 	// Maker sold: SELL at the same 0.95 / 5.76.
-	tr, ok := of.TradeFor(of.Maker)
+	tr, ok := tradeFor(of, of.Maker)
 	if !ok {
 		t.Fatal("maker should match")
 	}
