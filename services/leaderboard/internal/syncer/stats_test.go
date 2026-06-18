@@ -98,7 +98,7 @@ func TestStatsRefresh_BuildsWatchsetFromSelection(t *testing.T) {
 		Metric: client.MetricPNL, CandidateTopK: 50, MaxCandidates: 60,
 		MaxActivity: 3000, MinResolved: 20, TopN: 25, Interval: time.Hour,
 	}
-	s := NewStats(cand, crawl, st, bc, cfg, quietLogger())
+	s := NewStats(cand, crawl, st, bc, nil, cfg, quietLogger())
 
 	if err := s.refresh(ctx); err != nil {
 		t.Fatalf("refresh: %v", err)
@@ -143,7 +143,7 @@ func TestStatsRefresh_EmptySelectionDoesNotWipe(t *testing.T) {
 	}}
 	crawl := &fakeCrawler{activity: map[string][]dataapi.Activity{"0xnoob": makeResolved(2)}}
 	cfg := StatsConfig{Metric: client.MetricPNL, CandidateTopK: 50, MaxCandidates: 60, MaxActivity: 3000, MinResolved: 20, TopN: 25, Interval: time.Hour}
-	s := NewStats(cand, crawl, st, &recordingBroadcaster{}, cfg, quietLogger())
+	s := NewStats(cand, crawl, st, &recordingBroadcaster{}, nil, cfg, quietLogger())
 
 	if err := s.refresh(ctx); err != nil {
 		t.Fatalf("refresh: %v", err)
@@ -161,7 +161,7 @@ func TestStatsRefresh_EmptySelectionDoesNotWipe(t *testing.T) {
 func TestStatsRefresh_AllWindowsFailErrors(t *testing.T) {
 	cand := &fakeCandidates{err: errors.New("boom")}
 	cfg := StatsConfig{Metric: client.MetricPNL, CandidateTopK: 50, MaxCandidates: 60, MaxActivity: 3000, MinResolved: 20, TopN: 25, Interval: time.Hour}
-	s := NewStats(cand, &fakeCrawler{}, newStore(t), &recordingBroadcaster{}, cfg, quietLogger())
+	s := NewStats(cand, &fakeCrawler{}, newStore(t), &recordingBroadcaster{}, nil, cfg, quietLogger())
 	if err := s.refresh(context.Background()); err == nil {
 		t.Fatal("expected error when all candidate windows fail")
 	}
@@ -177,7 +177,7 @@ func TestStatsRefresh_SkipsCandidateOnCrawlError(t *testing.T) {
 		actErr:   map[string]error{"0xbad": errors.New("crawl boom")},
 	}
 	cfg := StatsConfig{Metric: client.MetricPNL, CandidateTopK: 50, MaxCandidates: 60, MaxActivity: 3000, MinResolved: 20, TopN: 25, Interval: time.Hour}
-	s := NewStats(cand, crawl, newStore(t), &recordingBroadcaster{}, cfg, quietLogger())
+	s := NewStats(cand, crawl, newStore(t), &recordingBroadcaster{}, nil, cfg, quietLogger())
 	if err := s.refresh(ctx); err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestStatsRefresh_CrawlsConcurrently(t *testing.T) {
 		Metric: client.MetricPNL, CandidateTopK: 50, MaxCandidates: 60, MaxActivity: 3000,
 		MinResolved: 20, TopN: 25, Interval: time.Hour, Concurrency: limit,
 	}
-	s := NewStats(cand, crawl, newStore(t), &recordingBroadcaster{}, cfg, quietLogger())
+	s := NewStats(cand, crawl, newStore(t), &recordingBroadcaster{}, nil, cfg, quietLogger())
 	if err := s.refresh(context.Background()); err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
@@ -263,7 +263,7 @@ func TestStatsRefresh_RespectsMaxCandidates(t *testing.T) {
 		"0xa": makeResolved(25), "0xb": makeResolved(25), "0xc": makeResolved(25),
 	}}
 	cfg := StatsConfig{Metric: client.MetricPNL, CandidateTopK: 50, MaxCandidates: 2, MaxActivity: 3000, MinResolved: 20, TopN: 25, Interval: time.Hour}
-	s := NewStats(cand, crawl, newStore(t), &recordingBroadcaster{}, cfg, quietLogger())
+	s := NewStats(cand, crawl, newStore(t), &recordingBroadcaster{}, nil, cfg, quietLogger())
 	if err := s.refresh(ctx); err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
@@ -284,7 +284,7 @@ func TestStatsRefresh_CtxCancellation(t *testing.T) {
 	}}
 	crawl := &fakeCrawler{activity: map[string][]dataapi.Activity{"0xa": makeResolved(25)}}
 	cfg := StatsConfig{Metric: client.MetricPNL, CandidateTopK: 50, MaxCandidates: 60, MaxActivity: 3000, MinResolved: 20, TopN: 25, Interval: time.Hour}
-	s := NewStats(cand, crawl, newStore(t), &recordingBroadcaster{}, cfg, quietLogger())
+	s := NewStats(cand, crawl, newStore(t), &recordingBroadcaster{}, nil, cfg, quietLogger())
 	// candidatePool fetch uses fake (ignores ctx) but the per-candidate loop
 	// checks ctx.Err() and should bail.
 	err := s.refresh(ctx)

@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package lobsterroll.v1;
+
+option go_package = "github.com/JacobTDang/LobsterRoll/gen/go/lobsterroll/v1;lobsterrollv1";
+
+// Pricewatch serves per-wallet Closing Line Value aggregates (computed from
+// captured price snapshots) for the leaderboard's skill scoring.
+service Pricewatch {
+  rpc GetWalletCLV(GetWalletCLVRequest) returns (GetWalletCLVResponse);
+}
+
+message GetWalletCLVRequest {
+  repeated string wallets = 1;
+}
+
+message WalletCLV {
+  string wallet = 1;
+  double avg_clv = 2; // mean settled CLV (probability units; +0.03 = beat close by 3pts)
+  int64 n = 3;        // settled-trade sample count
+}
+
+message GetWalletCLVResponse {
+  repeated WalletCLV clv = 1;
+}

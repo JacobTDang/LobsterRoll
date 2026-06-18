@@ -14,6 +14,7 @@ type Config struct {
 	NATSURL        string
 	CLOBBase       string
 	EnrichmentAddr string // dial enrichment-svc for market end dates (CLV settling)
+	GRPCAddr       string // bind address for the CLV gRPC service
 	DBPath         string
 	QueueGroup     string
 	PollInterval   time.Duration // how often to snapshot every tracked token
@@ -28,6 +29,7 @@ const (
 	defDBPath         = "pricewatch.db"
 	defQueueGroup     = "pricewatch"
 	defEnrichmentAddr = "enrichment:50052"
+	defGRPCAddr       = ":50053"
 	defPollInterval   = 2 * time.Minute
 	defTokenTTL       = 7 * 24 * time.Hour // conservative: keep quiet-but-live markets polling
 	defRetention      = 30 * 24 * time.Hour
@@ -41,6 +43,7 @@ func Load(getenv func(string) string) (Config, error) {
 		NATSURL:        orDefault(getenv("NATS_URL"), defNATSURL),
 		CLOBBase:       orDefault(getenv("PRICEWATCH_CLOB_BASE"), client.DefaultBaseURL),
 		EnrichmentAddr: orDefault(getenv("ENRICHMENT_GRPC_ADDR"), defEnrichmentAddr),
+		GRPCAddr:       orDefault(getenv("PRICEWATCH_GRPC_ADDR"), defGRPCAddr),
 		DBPath:         orDefault(getenv("PRICEWATCH_DB_PATH"), defDBPath),
 		QueueGroup:     orDefault(getenv("PRICEWATCH_QUEUE_GROUP"), defQueueGroup),
 		PollInterval:   defPollInterval,

@@ -95,6 +95,22 @@ func TestSignedPct(t *testing.T) {
 	}
 }
 
+func TestFormatAlert_ShowsCLVWhenObserved(t *testing.T) {
+	td := bus.TradeDetected{Wallet: "0x037c0f46600702e77ccb738721a78d6418d3a458", Side: "buy", Price: "0.5", Size: "10"}
+	// CLV observed -> shown.
+	got := FormatAlert(td, Market{Question: "Q", Outcome: "Yes", Found: true},
+		WhaleStats{SkillScore: 80, Fresh: true, AvgCLV: 0.031, CLVN: 142, OK: true})
+	if !strings.Contains(got, "CLV +3.1% (n=142)") {
+		t.Errorf("missing CLV segment: %q", got)
+	}
+	// No CLV samples -> segment omitted.
+	got = FormatAlert(td, Market{Question: "Q", Outcome: "Yes", Found: true},
+		WhaleStats{SkillScore: 80, Fresh: true, AvgCLV: 0, CLVN: 0, OK: true})
+	if strings.Contains(got, "CLV") {
+		t.Errorf("CLV should be omitted when unobserved: %q", got)
+	}
+}
+
 func TestFormatAlert_CoolingMarker(t *testing.T) {
 	td := bus.TradeDetected{Wallet: "0x037c0f46600702e77ccb738721a78d6418d3a458", Side: "buy", Price: "0.5", Size: "10"}
 	stats := WhaleStats{WinRate: 0.7, ResolvedMarkets: 40, ROI: 0.1, SkillScore: 50, Fresh: false, OK: true}

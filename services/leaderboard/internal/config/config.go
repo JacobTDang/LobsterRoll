@@ -12,12 +12,13 @@ import (
 
 // Config is the resolved leaderboard-svc configuration.
 type Config struct {
-	Metric   client.Metric
-	Window   client.Window
-	TopN     int
-	APIBase  string
-	DBPath   string
-	GRPCAddr string
+	Metric         client.Metric
+	Window         client.Window
+	TopN           int
+	APIBase        string
+	DBPath         string
+	GRPCAddr       string
+	PricewatchAddr string // dial pricewatch-svc for CLV (empty = disabled)
 
 	// Stats pipeline (per-wallet consistency stats + selection).
 	DataAPIBase        string        // data-api host for per-wallet crawls
@@ -37,12 +38,13 @@ type Config struct {
 // Defaults (also documented in .env.example). Per project decision the default
 // window is 30d to favor consistent performers over short-term spikes.
 const (
-	defWindow   = "30d"
-	defMetric   = "pnl"
-	defTopN     = 30 // track the top 30 performing wallets
-	defAPIBase  = client.DefaultBaseURL
-	defDBPath   = "watchset.db"
-	defGRPCAddr = ":50051"
+	defWindow         = "30d"
+	defMetric         = "pnl"
+	defTopN           = 30 // track the top 30 performing wallets
+	defAPIBase        = client.DefaultBaseURL
+	defDBPath         = "watchset.db"
+	defGRPCAddr       = ":50051"
+	defPricewatchAddr = "pricewatch:50053"
 
 	defDataAPIBase        = "https://data-api.polymarket.com"
 	defStatsMinResolved   = 20      // sample size: 90% win rate is noise below this
@@ -62,12 +64,13 @@ const (
 // validating every field.
 func Load(getenv func(string) string) (Config, error) {
 	cfg := Config{
-		Metric:   client.Metric(orDefault(getenv("LEADERBOARD_METRIC"), defMetric)),
-		Window:   client.Window(orDefault(getenv("LEADERBOARD_WINDOW"), defWindow)),
-		TopN:     defTopN,
-		APIBase:  orDefault(getenv("LEADERBOARD_API_BASE"), defAPIBase),
-		DBPath:   orDefault(getenv("LEADERBOARD_DB_PATH"), defDBPath),
-		GRPCAddr: orDefault(getenv("LEADERBOARD_GRPC_ADDR"), defGRPCAddr),
+		Metric:         client.Metric(orDefault(getenv("LEADERBOARD_METRIC"), defMetric)),
+		Window:         client.Window(orDefault(getenv("LEADERBOARD_WINDOW"), defWindow)),
+		TopN:           defTopN,
+		APIBase:        orDefault(getenv("LEADERBOARD_API_BASE"), defAPIBase),
+		DBPath:         orDefault(getenv("LEADERBOARD_DB_PATH"), defDBPath),
+		GRPCAddr:       orDefault(getenv("LEADERBOARD_GRPC_ADDR"), defGRPCAddr),
+		PricewatchAddr: orDefault(getenv("PRICEWATCH_GRPC_ADDR"), defPricewatchAddr),
 
 		DataAPIBase:        orDefault(getenv("LEADERBOARD_DATA_API_BASE"), defDataAPIBase),
 		StatsMinResolved:   defStatsMinResolved,

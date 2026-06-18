@@ -15,8 +15,10 @@ type StatsRecord struct {
 	ResolvedMarkets int64
 	RealizedPnL     float64
 	ROI             float64
-	SkillScore      int64 // 0–100 percentile by shrunk ROI within the population
-	Fresh           bool  // false = cooling off (recent downward regime)
+	SkillScore      int64   // 0–100 percentile by shrunk ROI within the population
+	Fresh           bool    // false = cooling off (recent downward regime)
+	AvgCLV          float64 // mean closing-line value over settled trades (0 if none)
+	CLVN            int64   // settled-CLV sample count
 	Profit30D       float64
 	PortfolioValue  float64
 	TradedMarkets   int64
@@ -48,6 +50,8 @@ func (s *Store) ensureStatsSchema(ctx context.Context) error {
 		`ALTER TABLE wallet_stats ADD COLUMN roi REAL NOT NULL DEFAULT 0`,
 		`ALTER TABLE wallet_stats ADD COLUMN skill_score INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE wallet_stats ADD COLUMN fresh INTEGER NOT NULL DEFAULT 1`,
+		`ALTER TABLE wallet_stats ADD COLUMN avg_clv REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE wallet_stats ADD COLUMN clv_n INTEGER NOT NULL DEFAULT 0`,
 	} {
 		if _, err := s.db.ExecContext(ctx, col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return fmt.Errorf("migrate wallet_stats: %w", err)
@@ -74,6 +78,20 @@ func (s *Store) SetSkillScore(ctx context.Context, wallet string, score int64) e
 		`UPDATE wallet_stats SET skill_score = ? WHERE proxy_wallet = ?`, score, wallet)
 	if err != nil {
 		return fmt.Errorf("set skill score %s: %w", wallet, err)
+	}
+	return nil
+}
+
+// SetWalletCLV updates the closing-line-value aggregate for wallet (fetched from
+// pricewatch after the per-wallet stats are upserted). No-op if the row is absent.
+func (s *Store) SetWalletCLV(ctx context.Context, wallet string, avgCLV float64, n int64) error {
+	if err := s.ensureStatsSchema(ctx); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE wallet_stats SET avg_clv = ?, clv_n = ? WHERE proxy_wallet = ?`, avgCLV, n, wallet)
+	if err != nil {
+		return fmt.Errorf("set clv %s: %w", wallet, err)
 	}
 	return nil
 }
@@ -113,10 +131,10 @@ func (s *Store) GetStats(ctx context.Context, wallet string) (StatsRecord, bool,
 	r := StatsRecord{Wallet: wallet}
 	var freshInt int
 	err := s.db.QueryRowContext(ctx,
-		`SELECT win_rate, resolved_markets, realized_pnl, profit_30d, portfolio_value, traded_markets, computed_unix, roi, skill_score, fresh
+		`SELECT win_rate, resolved_markets, realized_pnl, profit_30d, portfolio_value, traded_markets, computed_unix, roi, skill_score, fresh, avg_clv, clv_n
 		   FROM wallet_stats WHERE proxy_wallet = ?`, wallet).
 		Scan(&r.WinRate, &r.ResolvedMarkets, &r.RealizedPnL, &r.Profit30D,
-			&r.PortfolioValue, &r.TradedMarkets, &r.ComputedUnix, &r.ROI, &r.SkillScore, &freshInt)
+			&r.PortfolioValue, &r.TradedMarkets, &r.ComputedUnix, &r.ROI, &r.SkillScore, &freshInt, &r.AvgCLV, &r.CLVN)
 	if errors.Is(err, sql.ErrNoRows) {
 		return StatsRecord{}, false, nil
 	}

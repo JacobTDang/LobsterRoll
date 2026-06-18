@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/grpc"
 
+	lobsterrollv1 "github.com/JacobTDang/LobsterRoll/gen/go"
 	"github.com/JacobTDang/LobsterRoll/services/leaderboard/internal/client"
 	"github.com/JacobTDang/LobsterRoll/services/leaderboard/internal/dataapi"
 	"github.com/JacobTDang/LobsterRoll/services/leaderboard/internal/selection"
@@ -41,8 +43,16 @@ type Broadcaster interface {
 type StatsStorer interface {
 	UpsertStats(ctx context.Context, r store.StatsRecord) error
 	SetSkillScore(ctx context.Context, wallet string, score int64) error
+	SetWalletCLV(ctx context.Context, wallet string, avgCLV float64, n int64) error
 	Replace(ctx context.Context, wallets []string) (store.Delta, error)
 	SetLastSync(ctx context.Context, unix int64) error
+}
+
+// CLVFetcher fetches per-wallet closing-line-value aggregates from pricewatch.
+// The generated lobsterrollv1.PricewatchClient satisfies it. May be nil to
+// disable CLV enrichment.
+type CLVFetcher interface {
+	GetWalletCLV(ctx context.Context, in *lobsterrollv1.GetWalletCLVRequest, opts ...grpc.CallOption) (*lobsterrollv1.GetWalletCLVResponse, error)
 }
 
 // StatsConfig bounds the stats crawl and tunes selection.
@@ -79,13 +89,14 @@ type StatsSyncer struct {
 	crawler WalletCrawler
 	store   StatsStorer
 	bc      Broadcaster
+	clv     CLVFetcher // may be nil to disable CLV enrichment
 	cfg     StatsConfig
 	log     *slog.Logger
 }
 
-// NewStats constructs a StatsSyncer.
-func NewStats(cand CandidateFetcher, crawler WalletCrawler, st StatsStorer, bc Broadcaster, cfg StatsConfig, log *slog.Logger) *StatsSyncer {
-	return &StatsSyncer{cand: cand, crawler: crawler, store: st, bc: bc, cfg: cfg, log: log}
+// NewStats constructs a StatsSyncer. clv may be nil to disable CLV enrichment.
+func NewStats(cand CandidateFetcher, crawler WalletCrawler, st StatsStorer, bc Broadcaster, clv CLVFetcher, cfg StatsConfig, log *slog.Logger) *StatsSyncer {
+	return &StatsSyncer{cand: cand, crawler: crawler, store: st, bc: bc, clv: clv, cfg: cfg, log: log}
 }
 
 // Run performs an immediate refresh, then refreshes every cfg.Interval until
@@ -241,6 +252,12 @@ func (s *StatsSyncer) refresh(ctx context.Context) error {
 		}
 	}
 
+	// Best-effort CLV enrichment from pricewatch. It's optional and tracked-
+	// universe-only (sparse), so a missing/erroring pricewatch just leaves CLV at
+	// zero — never fails the refresh. Sets it on statsByWallet (for the skill
+	// rank blend) and persists it (for the alert).
+	s.enrichCLV(ctx, statsByWallet)
+
 	watchset := selection.Select(cands, statsByWallet, selection.Criteria{
 		MinResolved:     s.cfg.MinResolved,
 		MinWinRate:      s.cfg.MinWinRate,
@@ -269,4 +286,32 @@ func (s *StatsSyncer) refresh(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+// enrichCLV fetches per-wallet CLV from pricewatch (best-effort), sets it on the
+// in-memory stats for the skill-rank blend, and persists it for the alert.
+func (s *StatsSyncer) enrichCLV(ctx context.Context, statsByWallet map[string]selection.Stats) {
+	if s.clv == nil {
+		return
+	}
+	wallets := make([]string, 0, len(statsByWallet))
+	for w := range statsByWallet {
+		wallets = append(wallets, w)
+	}
+	resp, err := s.clv.GetWalletCLV(ctx, &lobsterrollv1.GetWalletCLVRequest{Wallets: wallets})
+	if err != nil {
+		s.log.Warn("clv fetch failed; proceeding without CLV", "err", err)
+		return
+	}
+	for _, c := range resp.GetClv() {
+		st, ok := statsByWallet[c.GetWallet()]
+		if !ok {
+			continue
+		}
+		st.AvgCLV, st.CLVN = c.GetAvgClv(), int(c.GetN())
+		statsByWallet[c.GetWallet()] = st
+		if err := s.store.SetWalletCLV(ctx, c.GetWallet(), c.GetAvgClv(), c.GetN()); err != nil {
+			s.log.Warn("set clv failed", "wallet", c.GetWallet(), "err", err)
+		}
+	}
 }

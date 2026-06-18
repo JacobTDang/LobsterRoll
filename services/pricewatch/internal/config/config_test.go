@@ -16,7 +16,7 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 	if cfg.NATSURL != defNATSURL || cfg.DBPath != defDBPath || cfg.QueueGroup != defQueueGroup ||
 		cfg.PollInterval != defPollInterval || cfg.TokenTTL != defTokenTTL || cfg.Retention != defRetention ||
-		cfg.EnrichmentAddr != defEnrichmentAddr || cfg.CloseBuffer != defCloseBuffer || cfg.SettleInterval != defSettleInterval {
+		cfg.EnrichmentAddr != defEnrichmentAddr || cfg.GRPCAddr != defGRPCAddr || cfg.CloseBuffer != defCloseBuffer || cfg.SettleInterval != defSettleInterval {
 		t.Fatalf("defaults not applied: %+v", cfg)
 	}
 }

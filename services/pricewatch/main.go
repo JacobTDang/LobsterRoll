@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +20,7 @@ import (
 	"github.com/JacobTDang/LobsterRoll/services/pricewatch/internal/client"
 	"github.com/JacobTDang/LobsterRoll/services/pricewatch/internal/config"
 	"github.com/JacobTDang/LobsterRoll/services/pricewatch/internal/enrich"
+	"github.com/JacobTDang/LobsterRoll/services/pricewatch/internal/server"
 	"github.com/JacobTDang/LobsterRoll/services/pricewatch/internal/settle"
 	"github.com/JacobTDang/LobsterRoll/services/pricewatch/internal/store"
 )
@@ -75,9 +78,28 @@ func run(ctx context.Context, log *slog.Logger) error {
 		return err
 	}
 
+	lis, err := net.Listen("tcp", cfg.GRPCAddr)
+	if err != nil {
+		return err
+	}
+	gs := grpc.NewServer()
+	lobsterrollv1.RegisterPricewatchServer(gs, server.New(st))
+
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return pollLoop(ctx, tracker, st, cfg, log) })
 	g.Go(func() error { return settleLoop(ctx, settler, cfg, log) })
+	g.Go(func() error {
+		log.Info("grpc serving", "addr", cfg.GRPCAddr)
+		if err := gs.Serve(lis); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
+			return err
+		}
+		return nil
+	})
+	g.Go(func() error {
+		<-ctx.Done()
+		gs.GracefulStop()
+		return nil
+	})
 	log.Info("pricewatch capturing", "interval", cfg.PollInterval, "settle", cfg.SettleInterval)
 	return g.Wait()
 }

@@ -130,6 +130,30 @@ func TestSelect_GatesWinRatePortfolioRealized(t *testing.T) {
 	}
 }
 
+func TestSelect_CLVNudgesRanking(t *testing.T) {
+	// Equal shrunk ROI. The CLV wallet is alphabetically LAST, so without the blend
+	// it would lose the wallet tie-break — only the positive CLV (enough samples)
+	// can lift it to the top. This is what makes the test exercise the blend.
+	cands := []Candidate{{Wallet: "0xaaa"}, {Wallet: "0xzzz"}}
+	base := Stats{WinRate: 0.95, ResolvedMarkets: 30, RealizedPnL: 1, PortfolioUSD: 1, ShrunkROI: 0.30, Fresh: true}
+	withCLV := base
+	withCLV.AvgCLV, withCLV.CLVN = 0.05, 100
+	stats := map[string]Stats{"0xaaa": base, "0xzzz": withCLV}
+
+	got := Select(cands, stats, Criteria{MinResolved: 20}, 10)
+	if len(got) != 2 || got[0] != "0xzzz" {
+		t.Fatalf("Select = %v, want [0xzzz 0xaaa] (positive CLV lifts it past the alpha tie-break)", got)
+	}
+
+	// With no CLV observations the blend is inert -> the alpha tie-break wins.
+	withCLV.CLVN = 0
+	stats["0xzzz"] = withCLV
+	got = Select(cands, stats, Criteria{MinResolved: 20}, 10)
+	if got[0] != "0xaaa" {
+		t.Fatalf("Select = %v, want [0xaaa ...] (no CLV obs -> alpha tie-break)", got)
+	}
+}
+
 func TestSelect_RequireFreshExcludesCooling(t *testing.T) {
 	cands := []Candidate{{Wallet: "0xfresh"}, {Wallet: "0xcooling"}}
 	stats := map[string]Stats{

@@ -33,6 +33,8 @@ type WhaleStats struct {
 	ROI             float64 // realized profit / capital deployed (fraction; 0.31 = +31%)
 	SkillScore      int     // 0-100 shrunk-ROI percentile within the tracked pool
 	Fresh           bool    // false = cooling off (recent downward regime)
+	AvgCLV          float64 // mean closing-line value (probability units); shown when CLVN>0
+	CLVN            int     // settled-CLV sample count
 	OK              bool
 }
 
@@ -56,8 +58,12 @@ func FormatAlert(td bus.TradeDetected, m Market, ws WhaleStats) string {
 		if !ws.Fresh {
 			fresh = " ⚠️cooling"
 		}
-		lines = append(lines, fmt.Sprintf("👤 SKILL %d%s · %d%% win · %s ROI · realized %s · %s portfolio (%d mkts)",
-			ws.SkillScore, fresh, int(ws.WinRate*100+0.5), signedPct(ws.ROI), signedMoney(ws.RealizedPnlUSD), abbrevMoney(ws.PortfolioUSD), ws.ResolvedMarkets))
+		clvSeg := ""
+		if ws.CLVN > 0 { // CLV is sparse (tracked-universe-only); show only when observed
+			clvSeg = fmt.Sprintf(" · CLV %+.1f%% (n=%d)", ws.AvgCLV*100, ws.CLVN)
+		}
+		lines = append(lines, fmt.Sprintf("👤 SKILL %d%s · %d%% win · %s ROI%s · realized %s · %s portfolio (%d mkts)",
+			ws.SkillScore, fresh, int(ws.WinRate*100+0.5), signedPct(ws.ROI), clvSeg, signedMoney(ws.RealizedPnlUSD), abbrevMoney(ws.PortfolioUSD), ws.ResolvedMarkets))
 	}
 	lines = append(lines, fmt.Sprintf("💵 $%s  ·  %s @ $%s", notional(td.Size, td.Price), td.Size, td.Price))
 	if !td.ObservedAt.IsZero() {

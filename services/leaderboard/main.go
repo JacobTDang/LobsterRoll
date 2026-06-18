@@ -9,6 +9,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 
@@ -45,13 +46,26 @@ func run(ctx context.Context, log *slog.Logger) error {
 	defer st.Close()
 
 	srv := server.New(st)
+
+	// Optional CLV enrichment from pricewatch (lazy dial; a down pricewatch just
+	// leaves CLV empty — never blocks selection).
+	var clvClient syncer.CLVFetcher
+	if cfg.PricewatchAddr != "" {
+		pwConn, err := grpc.NewClient(cfg.PricewatchAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			return err
+		}
+		defer pwConn.Close()
+		clvClient = lobsterrollv1.NewPricewatchClient(pwConn)
+	}
+
 	// The watchset is driven by the consistency-stats pipeline: build a
 	// candidate pool from the leaderboard, crawl each candidate's data-api
 	// history into win-rate/PnL stats, then select the most consistent top-N.
 	sy := syncer.NewStats(
 		client.New(cfg.APIBase, nil),
 		dataapi.New(cfg.DataAPIBase, nil),
-		st, srv,
+		st, srv, clvClient,
 		syncer.StatsConfig{
 			Metric:          cfg.Metric,
 			CandidateTopK:   cfg.CandidateTopK,

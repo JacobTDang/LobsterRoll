@@ -21,6 +21,8 @@ type Stats struct {
 	ROI             float64 // raw ROI (input to shrinkage)
 	ShrunkROI       float64 // sample-size-shrunk ROI — the skill ranking key
 	Fresh           bool    // false = cooling off (recent downward regime)
+	AvgCLV          float64 // mean closing-line value (0 if unobserved)
+	CLVN            int     // settled-CLV sample count
 }
 
 // Criteria are the hard quality gates a wallet must clear to be tracked. A
@@ -33,6 +35,25 @@ type Criteria struct {
 	RequireFresh    bool    // when true, exclude wallets flagged as cooling off
 }
 
+// CLV blend (tunable): the rank key is shrunk ROI nudged by the wallet's average
+// closing-line value, weighted by a confidence factor that ramps from 0 (no CLV
+// observations) to 1 (>= clvBlendFull samples). So CLV refines the ranking among
+// the tracked set without dominating, and is fully inert for unobserved wallets.
+const (
+	clvBlendWeight = 1.0 // max influence of CLV on the rank key
+	clvBlendFull   = 50  // settled-CLV samples for full CLV confidence
+)
+
+// rankKey is the value Select ranks by: shrunk ROI plus the confidence-weighted
+// CLV nudge.
+func rankKey(s Stats) float64 {
+	conf := float64(s.CLVN) / clvBlendFull
+	if conf > 1 {
+		conf = 1
+	}
+	return s.ShrunkROI + clvBlendWeight*conf*s.AvgCLV
+}
+
 // meets reports whether s clears every gate in c.
 func (c Criteria) meets(s Stats) bool {
 	return s.ResolvedMarkets >= c.MinResolved &&
@@ -42,8 +63,8 @@ func (c Criteria) meets(s Stats) bool {
 		(!c.RequireFresh || s.Fresh)
 }
 
-// Select returns up to topN wallets that clear every gate in crit, ranked by
-// ShrunkROI (the sample-size-shrunk skill estimate) descending. Candidates whose
+// Select returns up to topN wallets that clear every gate in crit, ranked by the
+// rank key (shrunk ROI + confidence-weighted CLV nudge) descending. Candidates whose
 // stats are missing, or that fail any gate, are excluded. With strict gates the
 // result may be far fewer than topN — that's intended (quality over a fixed
 // count). Ties break by win rate, then wallet.
@@ -59,7 +80,7 @@ func Select(candidates []Candidate, statsByWallet map[string]Stats, crit Criteri
 		if !ok || !crit.meets(st) {
 			continue
 		}
-		pool = append(pool, scored{wallet: c.Wallet, score: st.ShrunkROI, winRate: st.WinRate})
+		pool = append(pool, scored{wallet: c.Wallet, score: rankKey(st), winRate: st.WinRate})
 	}
 
 	// Rank by score, then win rate (so a pool of equal/zero scores — e.g. all

@@ -17,12 +17,13 @@ func TestLoad_Defaults(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	want := Config{
-		Metric:   client.MetricPNL,
-		Window:   "30d",
-		TopN:     30,
-		APIBase:  client.DefaultBaseURL,
-		DBPath:   "watchset.db",
-		GRPCAddr: ":50051",
+		Metric:         client.MetricPNL,
+		Window:         "30d",
+		TopN:           30,
+		APIBase:        client.DefaultBaseURL,
+		DBPath:         "watchset.db",
+		GRPCAddr:       ":50051",
+		PricewatchAddr: "pricewatch:50053",
 
 		DataAPIBase:        "https://data-api.polymarket.com",
 		StatsMinResolved:   20,
@@ -50,6 +51,7 @@ func TestLoad_Overrides(t *testing.T) {
 		"LEADERBOARD_API_BASE":      "http://localhost:9999",
 		"LEADERBOARD_DB_PATH":       "/data/w.db",
 		"LEADERBOARD_GRPC_ADDR":     ":7000",
+		"PRICEWATCH_GRPC_ADDR":      "pricewatch:9999",
 		"LEADERBOARD_DATA_API_BASE": "http://localhost:8888",
 		"STATS_MIN_RESOLVED":        "5",
 		"STATS_MIN_WIN_RATE":        "0.8",
@@ -67,12 +69,13 @@ func TestLoad_Overrides(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	want := Config{
-		Metric:   client.MetricVolume,
-		Window:   "7d",
-		TopN:     10,
-		APIBase:  "http://localhost:9999",
-		DBPath:   "/data/w.db",
-		GRPCAddr: ":7000",
+		Metric:         client.MetricVolume,
+		Window:         "7d",
+		TopN:           10,
+		APIBase:        "http://localhost:9999",
+		DBPath:         "/data/w.db",
+		GRPCAddr:       ":7000",
+		PricewatchAddr: "pricewatch:9999",
 
 		DataAPIBase:        "http://localhost:8888",
 		StatsMinResolved:   5,

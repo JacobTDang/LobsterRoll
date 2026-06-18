@@ -32,6 +32,8 @@ message WalletStats {
   double roi = 10; // realized profit / capital deployed (the edge metric)
   int64 skill_score = 11; // 0-100 percentile by shrunk ROI within the tracked pool
   bool fresh = 12; // false = cooling off (recent downward regime)
+  double avg_clv = 13; // mean closing-line value over settled trades (0 if none)
+  int64 clv_n = 14; // settled-CLV sample count
 }
 
 message GetWatchsetRequest {}
