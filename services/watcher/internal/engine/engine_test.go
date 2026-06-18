@@ -61,9 +61,12 @@ func TestProcessBatch_AggregatesAcrossLogsInTx(t *testing.T) {
 	set.Apply([]string{aggressor}, nil)
 	seen := dedup.New()
 
-	trades, maxBlock := ProcessBatch(logs, set, seen, nil)
+	trades, consumed, maxBlock := ProcessBatch(logs, set, seen, nil)
 	if len(trades) != 1 {
 		t.Fatalf("want 1 aggregated trade, got %d: %+v", len(trades), trades)
+	}
+	if len(consumed) != 2 {
+		t.Fatalf("want 2 consumed logs (both contribute), got %d", len(consumed))
 	}
 	tr := trades[0]
 	if tr.Wallet != aggressor {
@@ -90,12 +93,17 @@ func TestProcessBatch_DedupAcrossBatches(t *testing.T) {
 	set.Apply([]string{aggressor}, nil)
 	seen := dedup.New()
 
-	if trades, _ := ProcessBatch(logs, set, seen, nil); len(trades) != 1 {
+	trades, consumed, _ := ProcessBatch(logs, set, seen, nil)
+	if len(trades) != 1 {
 		t.Fatalf("first batch: want 1, got %d", len(trades))
 	}
+	// Commit: mark consumed logs seen (what the caller does after publishing).
+	for _, c := range consumed {
+		seen.Mark(c.Tx, c.Index, c.Block)
+	}
 	// Same logs again (backfill/live overlap) -> nothing new.
-	if trades, _ := ProcessBatch(logs, set, seen, nil); len(trades) != 0 {
-		t.Fatalf("second batch: want 0 (deduped), got %d", len(trades))
+	if trades, _, _ := ProcessBatch(logs, set, seen, nil); len(trades) != 0 {
+		t.Fatalf("second batch: want 0 (deduped after commit), got %d", len(trades))
 	}
 }
 
@@ -104,13 +112,13 @@ func TestProcessBatch_IgnoresUnwatched(t *testing.T) {
 	set := watchset.New() // nobody watched
 	seen := dedup.New()
 
-	trades, _ := ProcessBatch(logs, set, seen, nil)
+	trades, consumed, _ := ProcessBatch(logs, set, seen, nil)
 	if len(trades) != 0 {
 		t.Fatalf("want 0 trades for empty watchset, got %d", len(trades))
 	}
-	// Unwatched logs must NOT consume dedup slots.
-	if seen.Len() != 0 {
-		t.Errorf("seen.Len = %d, want 0 (unwatched logs not recorded)", seen.Len())
+	// Unwatched logs must NOT be reported as consumed.
+	if len(consumed) != 0 {
+		t.Errorf("consumed = %d, want 0 (unwatched logs not consumed)", len(consumed))
 	}
 }
 
@@ -125,7 +133,7 @@ func TestProcessBatch_SkipsUndecodable(t *testing.T) {
 	seen := dedup.New()
 
 	// Should not panic; the still-valid sell_side1 (maker=aggressor) yields a trade.
-	trades, _ := ProcessBatch(logs, set, seen, nil)
+	trades, _, _ := ProcessBatch(logs, set, seen, nil)
 	if len(trades) != 1 {
 		t.Fatalf("want 1 trade from the valid log, got %d", len(trades))
 	}

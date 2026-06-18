@@ -3,6 +3,7 @@ package chainwatch
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -57,11 +58,15 @@ func goldenLogs(t *testing.T) []types.Log {
 type fakePub struct {
 	mu     sync.Mutex
 	trades []bus.TradeDetected
+	err    error
 }
 
 func (p *fakePub) PublishTrade(t bus.TradeDetected) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.err != nil {
+		return p.err
+	}
 	p.trades = append(p.trades, t)
 	return nil
 }
@@ -130,7 +135,8 @@ func newWatcher(t *testing.T, fc *fakeChain) (*Watcher, *fakePub, *fakeCursor) {
 	pub := &fakePub{}
 	cur := &fakeCursor{}
 	w := New(fc, set, dedup.New(), cur, pub, quiet())
-	w.chunk = 1 // force multiple chunks in backfill tests
+	w.chunk = 1                             // force multiple chunks in backfill tests
+	w.flushInterval = 20 * time.Millisecond // fast settle for live tests
 	return w, pub, cur
 }
 
@@ -177,9 +183,17 @@ func TestBackfill_Chunks(t *testing.T) {
 	}
 }
 
+// higherLog is a minimal log in a later block, used to force a boundary flush
+// of the preceding (now-complete) block deterministically.
+func higherLog(block uint64) types.Log {
+	return types.Log{BlockNumber: block, TxHash: common.HexToHash("0xfeed")}
+}
+
 func TestSubscribe_LivePublishes(t *testing.T) {
 	logs := goldenLogs(t)
-	fc := &fakeChain{head: logs[0].BlockNumber, subLogs: logs, subErrc: make(chan error, 1)}
+	block := logs[0].BlockNumber
+	// A trailing higher block completes `block`, triggering a deterministic flush.
+	fc := &fakeChain{head: block, subLogs: append(append([]types.Log{}, logs...), higherLog(block+1)), subErrc: make(chan error, 1)}
 	w, pub, _ := newWatcher(t, fc)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -187,13 +201,15 @@ func TestSubscribe_LivePublishes(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- w.subscribe(ctx) }()
 
-	// The flush ticker (or a later block) flushes the buffered same-block logs.
 	deadline := time.Now().Add(5 * time.Second)
 	for pub.count() == 0 && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(5 * time.Millisecond)
 	}
 	if pub.count() != 1 {
 		t.Fatalf("live published %d, want 1", pub.count())
+	}
+	if got := pub.first().Size; got != "11.52" { // both logs aggregated (block flushed atomically)
+		t.Errorf("aggregated size = %q, want 11.52", got)
 	}
 	cancel()
 	<-done
@@ -205,13 +221,12 @@ func TestSubscribe_DedupAcrossBackfillAndLive(t *testing.T) {
 	fc := &fakeChain{
 		head:      block,
 		rangeLogs: func(from, to uint64) []types.Log { return logs },
-		subLogs:   logs, // same logs arrive live after backfill
+		subLogs:   append(append([]types.Log{}, logs...), higherLog(block+1)),
 		subErrc:   make(chan error, 1),
 	}
 	w, pub, _ := newWatcher(t, fc)
 	w.chunk = defaultChunk
 
-	// Backfill emits the trade once.
 	if err := w.backfill(context.Background(), block, block); err != nil {
 		t.Fatalf("backfill: %v", err)
 	}
@@ -219,13 +234,63 @@ func TestSubscribe_DedupAcrossBackfillAndLive(t *testing.T) {
 		t.Fatalf("after backfill: %d, want 1", pub.count())
 	}
 
-	// Live delivery of the same logs must NOT re-emit (dedup).
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { _ = w.subscribe(ctx) }()
-	time.Sleep(3 * time.Second) // allow flush ticker to fire
+	time.Sleep(300 * time.Millisecond) // allow boundary + settle flushes
 	cancel()
 	if pub.count() != 1 {
 		t.Fatalf("after live replay: %d, want 1 (deduped)", pub.count())
+	}
+}
+
+// TestProcessBatch_PublishFailure_NoCommit is the H1 regression: a publish
+// failure must not mark logs seen or advance the cursor, and a retry must
+// re-emit the trade (at-least-once).
+func TestProcessBatch_PublishFailure_NoCommit(t *testing.T) {
+	logs := goldenLogs(t)
+	block := logs[0].BlockNumber
+	w, pub, cur := newWatcher(t, &fakeChain{})
+
+	pub.err = errors.New("nats down")
+	if err := w.processBatch(context.Background(), logs, block, true); err == nil {
+		t.Fatal("expected error when publish fails")
+	}
+	if pub.count() != 0 {
+		t.Fatalf("delivered %d on failure, want 0", pub.count())
+	}
+	if cur.set {
+		t.Fatal("cursor advanced despite publish failure")
+	}
+	if w.seen.Len() != 0 {
+		t.Fatalf("seen marked %d despite publish failure, want 0", w.seen.Len())
+	}
+
+	// Recover: the same logs must now publish (not silently dropped).
+	pub.err = nil
+	if err := w.processBatch(context.Background(), logs, block, true); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	if pub.count() != 1 {
+		t.Fatalf("after recovery delivered %d, want 1", pub.count())
+	}
+	if cur.last() != block {
+		t.Fatalf("cursor = %d after recovery, want %d", cur.last(), block)
+	}
+}
+
+// TestProcessBatch_NoAdvanceWhenNotDoAdvance is the H2 mechanism: the
+// shutdown/ticker-mid-block path publishes but never advances the cursor.
+func TestProcessBatch_NoAdvanceWhenNotDoAdvance(t *testing.T) {
+	logs := goldenLogs(t)
+	w, pub, cur := newWatcher(t, &fakeChain{})
+	if err := w.processBatch(context.Background(), logs, logs[0].BlockNumber, false); err != nil {
+		t.Fatalf("processBatch: %v", err)
+	}
+	if pub.count() != 1 {
+		t.Fatalf("delivered %d, want 1 (still publishes)", pub.count())
+	}
+	if cur.set {
+		t.Fatal("cursor advanced with doAdvance=false (would skip an incomplete block on restart)")
 	}
 }

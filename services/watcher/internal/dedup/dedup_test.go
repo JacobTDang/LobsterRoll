@@ -27,6 +27,21 @@ func TestSeen_Mark(t *testing.T) {
 	}
 }
 
+func TestSeen_Has(t *testing.T) {
+	s := New()
+	tx := common.HexToHash("0xabc")
+	if s.Has(tx, 1) {
+		t.Error("Has should be false before Mark")
+	}
+	s.Mark(tx, 1, 100)
+	if !s.Has(tx, 1) {
+		t.Error("Has should be true after Mark")
+	}
+	if s.Has(tx, 2) {
+		t.Error("Has should be false for a different index")
+	}
+}
+
 func TestSeen_PruneBelow(t *testing.T) {
 	s := New()
 	s.Mark(common.HexToHash("0x1"), 0, 100)

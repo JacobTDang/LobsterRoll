@@ -25,6 +25,16 @@ func New() *Seen {
 	return &Seen{block: make(map[key]uint64)}
 }
 
+// Has reports whether (tx, idx) has already been recorded, without recording it.
+// Used to decide what to emit before committing (so marking can happen only
+// after a successful publish).
+func (s *Seen) Has(tx common.Hash, idx uint) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.block[key{tx, idx}]
+	return ok
+}
+
 // Mark records (tx, idx) at the given block and reports whether it had already
 // been seen. The first call for a pair returns false; subsequent calls true.
 func (s *Seen) Mark(tx common.Hash, idx uint, block uint64) (already bool) {
