@@ -50,3 +50,16 @@ type OrderResult struct {
 	Filled     bool   `json:"filled"`
 	Err        string `json:"err,omitempty"`
 }
+
+// ConsensusSignal is published on SubjectConsensusSignal when COUNT distinct
+// tracked wallets traded the same outcome token on the same side within a
+// rolling window. The whale wallets are all tracked, so this is a strong signal.
+type ConsensusSignal struct {
+	TokenID     string    `json:"token_id"`
+	Side        string    `json:"side"` // "buy" | "sell"
+	Wallets     []string  `json:"wallets"`
+	Count       int       `json:"count"`
+	CombinedUSD float64   `json:"combined_usd"`
+	WindowSecs  int       `json:"window_secs"`
+	ObservedAt  time.Time `json:"observed_at"`
+}

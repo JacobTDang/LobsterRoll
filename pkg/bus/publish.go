@@ -65,6 +65,11 @@ func (p *Publisher) PublishResult(r OrderResult) error {
 	return p.publishJSON(subject, r)
 }
 
+// PublishConsensus publishes a consensus signal on SubjectConsensusSignal.
+func (p *Publisher) PublishConsensus(c ConsensusSignal) error {
+	return p.publishJSON(SubjectConsensusSignal, c)
+}
+
 func (p *Publisher) publishJSON(subject string, v any) error {
 	data, err := json.Marshal(v)
 	if err != nil {

@@ -46,6 +46,18 @@ func (s *Subscriber) OnTradeDetected(queue string, handler func(TradeDetected)) 
 	})
 }
 
+// OnConsensus invokes handler for each ConsensusSignal on SubjectConsensusSignal.
+func (s *Subscriber) OnConsensus(queue string, handler func(ConsensusSignal)) (*nats.Subscription, error) {
+	return s.nc.QueueSubscribe(SubjectConsensusSignal, queue, func(msg *nats.Msg) {
+		var c ConsensusSignal
+		if err := json.Unmarshal(msg.Data, &c); err != nil {
+			s.log.Warn("dropping undecodable consensus.signal message", "err", err)
+			return
+		}
+		handler(c)
+	})
+}
+
 // OnOrderProposed invokes handler for each OrderProposal on SubjectOrderProposed.
 func (s *Subscriber) OnOrderProposed(queue string, handler func(OrderProposal)) (*nats.Subscription, error) {
 	return s.nc.QueueSubscribe(SubjectOrderProposed, queue, func(msg *nats.Msg) {

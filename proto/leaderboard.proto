@@ -9,6 +9,26 @@ option go_package = "github.com/JacobTDang/LobsterRoll/gen/go/lobsterroll/v1;lob
 service Leaderboard {
   rpc GetWatchset(GetWatchsetRequest) returns (GetWatchsetResponse);
   rpc StreamWatchset(StreamWatchsetRequest) returns (stream WatchsetUpdate);
+  // GetWalletStats returns our cached consistency stats for a wallet.
+  rpc GetWalletStats(GetWalletStatsRequest) returns (WalletStats);
+}
+
+message GetWalletStatsRequest {
+  string wallet = 1;
+}
+
+// WalletStats are the consistency metrics we compute from data-api /activity and
+// cache. found=false when we have no computed stats for the wallet yet.
+message WalletStats {
+  string wallet = 1;
+  double win_rate = 2; // 0..1 over resolved markets
+  int64 resolved_markets = 3;
+  double realized_pnl = 4;
+  double profit_30d = 5;
+  double portfolio_value = 6;
+  int64 traded_markets = 7;
+  int64 computed_unix = 8; // 0 if not yet computed
+  bool found = 9;
 }
 
 message GetWatchsetRequest {}

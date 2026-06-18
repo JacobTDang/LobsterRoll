@@ -15,6 +15,9 @@ const (
 	SubjectOrderFilled   = "orders.filled"
 	SubjectOrderFailed   = "orders.failed"
 	SubjectControlHalt   = "control.halt"
+	// SubjectConsensusSignal fires when multiple tracked wallets converge on the
+	// same outcome token within a window (the strongest copy signal).
+	SubjectConsensusSignal = "consensus.signal"
 )
 
 // AllSubjects returns every subject used on the bus.
@@ -27,5 +30,6 @@ func AllSubjects() []string {
 		SubjectOrderFilled,
 		SubjectOrderFailed,
 		SubjectControlHalt,
+		SubjectConsensusSignal,
 	}
 }
