@@ -29,8 +29,8 @@ func (s *fakeSrc) Fetch(context.Context, string) (marketdata.Data, bool, error) 
 }
 
 type fakeProposer struct {
-	mu   sync.Mutex
-	got  []bus.OrderProposal
+	mu  sync.Mutex
+	got []bus.OrderProposal
 }
 
 func (p *fakeProposer) PublishProposal(o bus.OrderProposal) error {
@@ -106,6 +106,18 @@ func TestHandle_Allowlist(t *testing.T) {
 	h.Handle(context.Background(), trade)
 	if pub.count() != 0 {
 		t.Fatalf("proposals = %d, want 0 (not in allowlist)", pub.count())
+	}
+}
+
+func TestHandle_AllowlistCaseInsensitive(t *testing.T) {
+	d := goodData()
+	d.ConditionID = "0xABCDEF" // gamma could return mixed case
+	pub := &fakeProposer{}
+	// Allowlist stored lowercase (as config.parseAllowlist produces).
+	h := New(&fakeSrc{data: d, ok: true}, pub, policy, map[string]bool{"0xabcdef": true}, quiet())
+	h.Handle(context.Background(), trade)
+	if pub.count() != 1 {
+		t.Fatalf("proposals = %d, want 1 (case-insensitive allowlist match)", pub.count())
 	}
 }
 

@@ -34,9 +34,9 @@ func TestSizeUSD(t *testing.T) {
 func TestWithinSlippage(t *testing.T) {
 	const slip = 0.03
 	tests := []struct {
-		side                    string
-		whale, current          float64
-		want                    bool
+		side           string
+		whale, current float64
+		want           bool
 	}{
 		{"buy", 0.50, 0.52, true},   // current within +3c
 		{"buy", 0.50, 0.53, true},   // exactly +3c
@@ -119,6 +119,15 @@ func TestDecide_Skips(t *testing.T) {
 			Policy{Sizing: SizingProportional, Proportion: 0.01, MinSizeUSD: 5, MaxSizeUSD: 100, MaxSlippage: 0.03, MinLiquidityUSD: 1000},
 		},
 		{"bad price", mod2(goodTrade, func(t *bus.TradeDetected) { t.Price = "abc" }), goodMarket, goodPolicy},
+		{"negative price", mod2(goodTrade, func(t *bus.TradeDetected) { t.Price = "-0.5" }), goodMarket, goodPolicy},
+		{"zero size", mod2(goodTrade, func(t *bus.TradeDetected) { t.Size = "0" }), goodMarket, goodPolicy},
+		{
+			// buy limit = 0.99 + 0.03 = 1.02 -> outside (0,1) -> skip.
+			"limit out of range",
+			mod2(goodTrade, func(t *bus.TradeDetected) { t.Price = "0.99" }),
+			mod(goodMarket, func(m *Market) { m.CurrentPrice = 0.99 }),
+			goodPolicy,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -133,5 +142,5 @@ func TestDecide_Skips(t *testing.T) {
 	}
 }
 
-func mod(m Market, f func(*Market)) Market { f(&m); return m }
+func mod(m Market, f func(*Market)) Market                                   { f(&m); return m }
 func mod2(t bus.TradeDetected, f func(*bus.TradeDetected)) bus.TradeDetected { f(&t); return t }

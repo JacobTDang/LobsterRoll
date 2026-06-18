@@ -55,8 +55,12 @@ func Decide(t bus.TradeDetected, m Market, p Policy) Outcome {
 	if err != nil {
 		return skip("invalid trade price")
 	}
-	if _, err := strconv.ParseFloat(t.Size, 64); err != nil {
+	whaleSize, err := strconv.ParseFloat(t.Size, 64)
+	if err != nil {
 		return skip("invalid trade size")
+	}
+	if whalePrice <= 0 || whaleSize <= 0 {
+		return skip("non-positive trade price or size")
 	}
 	if t.Side != "buy" && t.Side != "sell" {
 		return skip("unknown side")
@@ -82,6 +86,13 @@ func Decide(t bus.TradeDetected, m Market, p Policy) Outcome {
 		return skip(fmt.Sprintf("size $%.2f below min $%.2f", sizeUSD, p.MinSizeUSD))
 	}
 
+	limit, ok := limitPrice(t.Side, whalePrice, p.MaxSlippage)
+	if !ok {
+		// The slippage allowance pushed the limit outside the tradable (0,1)
+		// range — refuse rather than emit a limit that ignores the policy.
+		return skip("limit price out of tradable range")
+	}
+
 	return Outcome{
 		Propose: true,
 		Reason:  "ok",
@@ -90,7 +101,7 @@ func Decide(t bus.TradeDetected, m Market, p Policy) Outcome {
 			SourceTrade: t,
 			TokenID:     t.TokenID,
 			Side:        t.Side,
-			LimitPrice:  formatPrice(limitPrice(t.Side, whalePrice, p.MaxSlippage)),
+			LimitPrice:  formatPrice(limit),
 			SizeUSD:     sizeUSD,
 			Reason:      "mirror whale " + shortWallet(t.Wallet),
 		},
@@ -136,11 +147,16 @@ func WithinSlippage(side string, whalePrice, currentPrice, maxSlippage float64) 
 	}
 }
 
+// epsilon makes the slippage boundary inclusive despite float rounding. It is
+// far smaller than the price tick (~0.001), so it can never admit a trade that
+// is a meaningful cent over the threshold.
 const epsilon = 1e-9
 
 // limitPrice is the worst price we'll accept, derived from the whale price plus
-// the slippage allowance, clamped into the open interval (0,1).
-func limitPrice(side string, whalePrice, maxSlippage float64) float64 {
+// the slippage allowance, rounded to the price tick. ok=false if that limit
+// falls outside the tradable (0,1) range, in which case the proposal is skipped
+// rather than emitting a clamped limit that no longer reflects the policy.
+func limitPrice(side string, whalePrice, maxSlippage float64) (float64, bool) {
 	var v float64
 	if side == "buy" {
 		v = whalePrice + maxSlippage
@@ -148,7 +164,10 @@ func limitPrice(side string, whalePrice, maxSlippage float64) float64 {
 		v = whalePrice - maxSlippage
 	}
 	v = math.Round(v*1000) / 1000 // Polymarket ticks are sub-cent; 3dp is plenty
-	return math.Max(0.001, math.Min(0.999, v))
+	if v < 0.001 || v > 0.999 {
+		return 0, false
+	}
+	return v, true
 }
 
 func formatPrice(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }

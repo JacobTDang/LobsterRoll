@@ -22,6 +22,22 @@ func TestSet_Add(t *testing.T) {
 	}
 }
 
+func TestSet_Bounded(t *testing.T) {
+	s := NewSized(3)
+	// Add many distinct keys; Len must never exceed 2*max.
+	for i := 0; i < 100; i++ {
+		s.Add(fmt.Sprintf("k%d", i))
+		if s.Len() > 6 {
+			t.Fatalf("Len = %d after %d adds, want <= 6 (2*max)", s.Len(), i+1)
+		}
+	}
+	// A just-added key is still deduped.
+	s.Add("recent")
+	if s.Add("recent") {
+		t.Error("recently added key should be deduped")
+	}
+}
+
 func TestSet_Race(t *testing.T) {
 	s := New()
 	var wg sync.WaitGroup

@@ -5,6 +5,7 @@ package handler
 import (
 	"context"
 	"log/slog"
+	"strings"
 
 	"github.com/JacobTDang/LobsterRoll/pkg/bus"
 	"github.com/JacobTDang/LobsterRoll/services/strategy/internal/decide"
@@ -62,7 +63,8 @@ func (h *Handler) Handle(ctx context.Context, td bus.TradeDetected) {
 		return
 	}
 
-	allowed := len(h.allowlist) == 0 || h.allowlist[data.ConditionID]
+	// Compare case-insensitively: allowlist keys are lowercased at load time.
+	allowed := len(h.allowlist) == 0 || h.allowlist[strings.ToLower(data.ConditionID)]
 	market := decide.Market{
 		CurrentPrice: data.CurrentPrice,
 		LiquidityUSD: data.LiquidityUSD,
