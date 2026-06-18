@@ -47,7 +47,8 @@ type ControlMsg struct {
 type OrderResult struct {
 	ProposalID string `json:"proposal_id"`
 	OrderID    string `json:"order_id"`
-	Filled     bool   `json:"filled"`
+	Filled     bool   `json:"filled"`           // true only when the order fully matched
+	Status     string `json:"status,omitempty"` // exchange status: matched | live | unmatched | ...
 	Err        string `json:"err,omitempty"`
 }
 

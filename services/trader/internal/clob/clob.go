@@ -15,6 +15,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -136,15 +137,28 @@ func (c *Client) PlaceOrder(ctx context.Context, o SignedOrder) (PlaceResult, er
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		// A 4xx is a client-side rejection: the order was NOT accepted, so the
+		// caller can safely roll back. A 5xx is ambiguous (the order may or may
+		// not have landed) — surface it as a plain error to be treated cautiously.
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+			return PlaceResult{}, fmt.Errorf("%w: status %d: %s", ErrRejected, resp.StatusCode, raw)
+		}
 		return PlaceResult{}, fmt.Errorf("clob status %d: %s", resp.StatusCode, raw)
 	}
 	var r placeResp
 	if err := json.Unmarshal(raw, &r); err != nil {
+		// 2xx but unparseable: ambiguous (the order may have been accepted).
 		return PlaceResult{}, fmt.Errorf("decode response: %w", err)
 	}
-	// Treat a 2xx as success unless the body explicitly says otherwise.
+	// An explicit success:false / error field is a definite rejection.
 	if (r.Success != nil && !*r.Success) || r.Error != "" || r.ErrorMsg != "" {
-		return PlaceResult{}, fmt.Errorf("clob rejected order %s: status=%s err=%s%s", r.OrderID, r.Status, r.Error, r.ErrorMsg)
+		return PlaceResult{}, fmt.Errorf("%w %s: status=%s err=%s%s", ErrRejected, r.OrderID, r.Status, r.Error, r.ErrorMsg)
 	}
 	return PlaceResult{Success: true, OrderID: r.OrderID, Status: r.Status}, nil
 }
+
+// ErrRejected marks a placement the exchange definitively did NOT accept (an
+// explicit success:false / error body, or a 4xx). The caller may safely roll
+// back caps. Other errors (transport, 5xx, undecodable 2xx) are ambiguous — the
+// order may have reached the book — and do NOT wrap ErrRejected.
+var ErrRejected = errors.New("clob rejected order")

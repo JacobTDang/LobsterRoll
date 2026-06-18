@@ -41,6 +41,33 @@ func (c *memCache) Put(_ context.Context, tok string, e client.Enrichment) error
 	return nil
 }
 
+// ctxResolver honors its context so we can assert the fetch isn't tied to a
+// cancelled caller.
+type ctxResolver struct{ result client.Enrichment }
+
+func (r *ctxResolver) Fetch(ctx context.Context, _ string) (client.Enrichment, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return client.Enrichment{}, false, err
+	}
+	return r.result, true, nil
+}
+
+// A caller cancelling its context must NOT cancel the shared upstream fetch
+// (single-flight decouples it via context.WithoutCancel).
+func TestEnrichToken_FetchDecoupledFromCallerCancel(t *testing.T) {
+	s := New(newMemCache(), &ctxResolver{result: sample}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // leader caller's context already cancelled
+
+	resp, err := s.EnrichToken(ctx, &lobsterrollv1.EnrichTokenRequest{TokenId: "tok"})
+	if err != nil {
+		t.Fatalf("EnrichToken with cancelled caller ctx = %v, want success (fetch decoupled)", err)
+	}
+	if resp.GetMarketQuestion() != sample.MarketQuestion {
+		t.Fatalf("resp = %+v, want %+v", resp, sample)
+	}
+}
+
 type fakeResolver struct {
 	calls   int32
 	delay   time.Duration

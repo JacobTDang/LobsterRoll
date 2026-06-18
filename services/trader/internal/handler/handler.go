@@ -5,6 +5,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/JacobTDang/LobsterRoll/pkg/bus"
@@ -114,25 +115,42 @@ func (h *Handler) place(ctx context.Context, p bus.OrderProposal, source string)
 		h.fail(p, "halted")
 		return
 	}
-	// 6. Place. A place error is ambiguous (the order may have reached the book),
-	// so mark it failed and keep the claim — no auto-retry; reconcile out of band.
+	// 6. Place. The claim is kept either way (at-most-once — no auto-retry).
 	res, err := h.placer.PlaceOrder(ctx, so)
 	if err != nil {
-		h.caps.Release(p.SizeUSD, buy)
-		if merr := h.store.MarkResult(ctx, p.ID, "", "failed"); merr != nil {
-			h.log.Error("mark failed-result failed", "id", p.ID, "err", merr)
+		if errors.Is(err, clob.ErrRejected) {
+			// Definitely not accepted: safe to roll back the cap reservation.
+			h.caps.Release(p.SizeUSD, buy)
+			h.markResult(ctx, p.ID, "", "rejected")
+			h.fail(p, "place rejected: "+err.Error())
+			return
 		}
-		h.fail(p, "place: "+err.Error())
+		// Ambiguous (transport/5xx/undecodable): the order may have reached the
+		// book. KEEP the cap reservation (conservative — don't under-count real
+		// exposure) and mark unknown for out-of-band reconciliation.
+		h.markResult(ctx, p.ID, "", "unknown")
+		h.fail(p, "place ambiguous (may have placed): "+err.Error())
 		return
 	}
-	if merr := h.store.MarkResult(ctx, p.ID, res.OrderID, res.Status); merr != nil {
-		// Critical: a real order placed but we couldn't persist it.
-		h.log.Error("CRITICAL: placed order but failed to persist result", "id", p.ID, "order", res.OrderID, "err", merr)
+	h.markResult(ctx, p.ID, res.OrderID, res.Status)
+	// Filled is true only on a full match; a resting order ("live"/"unmatched")
+	// is accepted (no Err -> orders.filled) but Filled=false.
+	result := bus.OrderResult{ProposalID: p.ID, OrderID: res.OrderID, Filled: res.Status == statusMatched, Status: res.Status}
+	if err := h.pub.PublishResult(result); err != nil {
+		h.log.Error("CRITICAL: placed order but failed to publish result", "id", p.ID, "order", res.OrderID, "err", err)
 	}
-	if err := h.pub.PublishResult(bus.OrderResult{ProposalID: p.ID, OrderID: res.OrderID, Filled: true}); err != nil {
-		h.log.Error("CRITICAL: placed order but failed to publish filled", "id", p.ID, "order", res.OrderID, "err", err)
+	h.log.Info("order placed", "id", p.ID, "order", res.OrderID, "status", res.Status, "matched", result.Filled, "source", source, "sizeUSD", p.SizeUSD)
+}
+
+// statusMatched is the CLOB status for a fully-filled order.
+const statusMatched = "matched"
+
+// markResult persists the placement outcome, logging a critical error if the
+// write fails (a real order may exist that we couldn't record).
+func (h *Handler) markResult(ctx context.Context, id, orderID, status string) {
+	if err := h.store.MarkResult(ctx, id, orderID, status); err != nil {
+		h.log.Error("CRITICAL: failed to persist placement result", "id", id, "status", status, "err", err)
 	}
-	h.log.Info("order placed", "id", p.ID, "order", res.OrderID, "status", res.Status, "source", source, "sizeUSD", p.SizeUSD)
 }
 
 func (h *Handler) unclaim(ctx context.Context, id string) {

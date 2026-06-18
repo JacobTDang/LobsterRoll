@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"sync"
@@ -203,17 +204,52 @@ func TestPlace_HaltMidFlightRefuses(t *testing.T) {
 	}
 }
 
-func TestPlace_PlaceErrorReleasesCaps(t *testing.T) {
+func TestPlace_RejectedReleasesCaps(t *testing.T) {
+	// A clean rejection (ErrRejected) means the order was NOT accepted -> roll back caps.
 	c := &fakeCaps{allow: true}
-	pl := &fakePlacer{err: errors.New("clob 500")}
+	pl := &fakePlacer{err: fmt.Errorf("%w: status 400", clob.ErrRejected)}
 	pub := &fakePub{}
 	h := New(c, fakeSigner{}, pl, newStore(), pub, halt.New(), config.ExecutionPolicy{Mode: config.ModeApproval}, quiet())
 	h.OnApproved(context.Background(), bus.OrderDecision{Proposal: proposal, Approved: true})
 	if c.released != 1 {
-		t.Fatalf("caps released = %d, want 1 (rollback on place failure)", c.released)
+		t.Fatalf("caps released = %d, want 1 (clean rejection rolls back)", c.released)
 	}
-	if pub.last().Filled {
-		t.Fatal("want failed result")
+	if r := pub.last(); r.Filled || r.Err == "" {
+		t.Fatalf("result = %+v, want failed", r)
+	}
+}
+
+func TestPlace_AmbiguousKeepsCaps(t *testing.T) {
+	// An ambiguous error (timeout/5xx) may have placed -> KEEP the reservation.
+	c := &fakeCaps{allow: true}
+	pl := &fakePlacer{err: errors.New("clob 500 / timeout")}
+	pub := &fakePub{}
+	h := New(c, fakeSigner{}, pl, newStore(), pub, halt.New(), config.ExecutionPolicy{Mode: config.ModeApproval}, quiet())
+	h.OnApproved(context.Background(), bus.OrderDecision{Proposal: proposal, Approved: true})
+	if c.released != 0 {
+		t.Fatalf("caps released = %d, want 0 (ambiguous error must not under-count exposure)", c.released)
+	}
+	if r := pub.last(); r.Filled || r.Err == "" {
+		t.Fatalf("result = %+v, want failed", r)
+	}
+}
+
+func TestPlace_RestingOrderNotMarkedFilled(t *testing.T) {
+	// A successful but resting order ("live") is accepted but NOT a fill.
+	c := &fakeCaps{allow: true}
+	pl := &fakePlacer{res: clob.PlaceResult{Success: true, OrderID: "ord-9", Status: "live"}}
+	pub := &fakePub{}
+	h := New(c, fakeSigner{}, pl, newStore(), pub, halt.New(), config.ExecutionPolicy{Mode: config.ModeApproval}, quiet())
+	h.OnApproved(context.Background(), bus.OrderDecision{Proposal: proposal, Approved: true})
+	r := pub.last()
+	if r.Filled {
+		t.Fatalf("resting order reported Filled=true: %+v", r)
+	}
+	if r.Status != "live" || r.OrderID != "ord-9" || r.Err != "" {
+		t.Fatalf("result = %+v, want status=live, no err", r)
+	}
+	if c.released != 0 {
+		t.Fatalf("resting order should keep its cap reservation, released=%d", c.released)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"golang.org/x/sync/singleflight"
 	"google.golang.org/grpc/codes"
@@ -60,9 +61,14 @@ func (s *Server) EnrichToken(ctx context.Context, req *lobsterrollv1.EnrichToken
 		return toResponse(e), nil
 	}
 
-	// Collapse concurrent misses for the same token into one upstream fetch.
+	// Collapse concurrent misses for the same token into one upstream fetch. The
+	// shared fetch runs under a context decoupled from this caller's ctx (with our
+	// own timeout) so that if the leader caller cancels, the fetch — and every
+	// other waiter coalesced onto it — isn't cancelled along with it.
 	v, err, _ := s.group.Do(tokenID, func() (any, error) {
-		e, ok, ferr := s.resolver.Fetch(ctx, tokenID)
+		fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), fetchTimeout)
+		defer cancel()
+		e, ok, ferr := s.resolver.Fetch(fctx, tokenID)
 		if ferr != nil {
 			return nil, ferr
 		}
@@ -70,7 +76,7 @@ func (s *Server) EnrichToken(ctx context.Context, req *lobsterrollv1.EnrichToken
 			return nil, errNotFound
 		}
 		// A cache-write hiccup must not discard a good resolution: log and serve it.
-		if perr := s.cache.Put(ctx, tokenID, e); perr != nil {
+		if perr := s.cache.Put(fctx, tokenID, e); perr != nil {
 			s.log.Warn("enrichment cache write failed; serving uncached", "token", tokenID, "err", perr)
 		}
 		return e, nil
@@ -85,6 +91,9 @@ func (s *Server) EnrichToken(ctx context.Context, req *lobsterrollv1.EnrichToken
 }
 
 var errNotFound = errors.New("enrichment: token not found")
+
+// fetchTimeout bounds the decoupled upstream fetch.
+const fetchTimeout = 20 * time.Second
 
 func toResponse(e client.Enrichment) *lobsterrollv1.EnrichTokenResponse {
 	return &lobsterrollv1.EnrichTokenResponse{

@@ -55,12 +55,14 @@ func (p *Publisher) PublishControl(c ControlMsg) error {
 	return p.publishJSON(SubjectControlHalt, c)
 }
 
-// PublishResult publishes an execution result, routed to SubjectOrderFilled or
-// SubjectOrderFailed by r.Filled.
+// PublishResult publishes an execution result. A result with no Err (the order
+// was accepted by the exchange — matched or resting) goes to SubjectOrderFilled;
+// a result carrying an Err (rejected/failed/ambiguous) goes to SubjectOrderFailed.
+// Filled distinguishes a true fill from a resting order within the success case.
 func (p *Publisher) PublishResult(r OrderResult) error {
-	subject := SubjectOrderFailed
-	if r.Filled {
-		subject = SubjectOrderFilled
+	subject := SubjectOrderFilled
+	if r.Err != "" {
+		subject = SubjectOrderFailed
 	}
 	return p.publishJSON(subject, r)
 }
