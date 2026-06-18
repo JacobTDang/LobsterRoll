@@ -34,6 +34,7 @@ const activityPageSize = 500
 type Activity struct {
 	Type        string  `json:"type"`        // TRADE, REDEEM, MERGE, SPLIT, REWARD, ...
 	Side        string  `json:"side"`        // BUY or SELL (TRADE only)
+	Size        float64 `json:"size"`        // share quantity of the event
 	USDCSize    float64 `json:"usdcSize"`    // cash size of the event
 	ConditionID string  `json:"conditionId"` // market identifier
 }

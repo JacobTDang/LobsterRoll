@@ -215,6 +215,29 @@ func TestSubscribe_LivePublishes(t *testing.T) {
 	<-done
 }
 
+func TestSubscribe_SkipsReorgRemovedLog(t *testing.T) {
+	logs := goldenLogs(t)
+	block := logs[0].BlockNumber
+	// Same decodable logs, but flagged as reorg-removed by go-ethereum.
+	removed := make([]types.Log, len(logs))
+	for i, l := range logs {
+		l.Removed = true
+		removed[i] = l
+	}
+	fc := &fakeChain{head: block, subLogs: append(append([]types.Log{}, removed...), higherLog(block+1)), subErrc: make(chan error, 1)}
+	w, pub, _ := newWatcher(t, fc)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = w.subscribe(ctx) }()
+	time.Sleep(300 * time.Millisecond) // allow boundary + settle flushes
+	cancel()
+
+	if pub.count() != 0 {
+		t.Fatalf("published %d reorg-removed trades, want 0", pub.count())
+	}
+}
+
 func TestSubscribe_DedupAcrossBackfillAndLive(t *testing.T) {
 	logs := goldenLogs(t)
 	block := logs[0].BlockNumber

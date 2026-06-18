@@ -11,6 +11,11 @@ func act(typ, side string, size float64, cond string) dataapi.Activity {
 	return dataapi.Activity{Type: typ, Side: side, USDCSize: size, ConditionID: cond}
 }
 
+// actS includes a share quantity (for closed-by-sell resolution tests).
+func actS(typ, side string, usdc, shares float64, cond string) dataapi.Activity {
+	return dataapi.Activity{Type: typ, Side: side, USDCSize: usdc, Size: shares, ConditionID: cond}
+}
+
 const eps = 1e-9
 
 func approx(a, b float64) bool { return math.Abs(a-b) < eps }
@@ -165,6 +170,48 @@ func TestCompute_RewardDoesNotResolve(t *testing.T) {
 	}
 	if s.TradedMarkets != 1 {
 		t.Errorf("TradedMarkets = %d, want 1", s.TradedMarkets)
+	}
+}
+
+// The key fix: a position closed by selling out (no redeem) at a LOSS must be
+// counted as a resolved loss — a redeem-only rule would omit it and inflate win rate.
+func TestCompute_ClosedBySellCountsLoss(t *testing.T) {
+	// Bought 100 shares for $50, sold all 100 for $30 -> net -$20, no redeem.
+	acts := []dataapi.Activity{
+		actS(typeTrade, sideBuy, 50, 100, "m1"),
+		actS(typeTrade, sideSell, 30, 100, "m1"),
+	}
+	s := Compute(acts)
+	if s.ResolvedMarkets != 1 {
+		t.Fatalf("ResolvedMarkets = %d, want 1 (closed by selling out)", s.ResolvedMarkets)
+	}
+	if !approx(s.RealizedPnL, -20) {
+		t.Errorf("RealizedPnL = %v, want -20", s.RealizedPnL)
+	}
+	if !approx(s.WinRate, 0) {
+		t.Errorf("WinRate = %v, want 0 (closed at a loss)", s.WinRate)
+	}
+}
+
+func TestCompute_ClosedBySellWin(t *testing.T) {
+	// Bought 100 for $50, sold all 100 for $70 -> +$20, no redeem.
+	s := Compute([]dataapi.Activity{
+		actS(typeTrade, sideBuy, 50, 100, "m1"),
+		actS(typeTrade, sideSell, 70, 100, "m1"),
+	})
+	if s.ResolvedMarkets != 1 || !approx(s.WinRate, 1.0) || !approx(s.RealizedPnL, 20) {
+		t.Fatalf("got %+v, want 1 resolved / winRate 1 / pnl 20", s)
+	}
+}
+
+func TestCompute_PartialSellNotResolved(t *testing.T) {
+	// Bought 100, sold only 50 -> still holding 50 shares -> NOT resolved.
+	s := Compute([]dataapi.Activity{
+		actS(typeTrade, sideBuy, 50, 100, "m1"),
+		actS(typeTrade, sideSell, 30, 50, "m1"),
+	})
+	if s.ResolvedMarkets != 0 {
+		t.Fatalf("ResolvedMarkets = %d, want 0 (position only half-exited)", s.ResolvedMarkets)
 	}
 }
 

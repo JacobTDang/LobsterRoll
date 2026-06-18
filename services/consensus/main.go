@@ -24,7 +24,7 @@ func run(ctx context.Context, log *slog.Logger) error {
 		"nats", cfg.NATSURL, "minWallets", cfg.MinWallets,
 		"window", cfg.Window, "db", cfg.DBPath, "queue", cfg.QueueGroup)
 
-	store, err := window.Open(ctx, cfg.DBPath, cfg.Window, nil)
+	store, err := window.Open(ctx, cfg.DBPath, cfg.Window, cfg.MinWallets, nil)
 	if err != nil {
 		return err
 	}
@@ -42,7 +42,7 @@ func run(ctx context.Context, log *slog.Logger) error {
 	}
 	defer sub.Close()
 
-	agg := aggregator.New(store, pub, cfg.MinWallets, cfg.Window, nil, log)
+	agg := aggregator.New(store, pub, cfg.Window, nil, log)
 
 	if _, err := sub.OnTradeDetected(cfg.QueueGroup, func(td bus.TradeDetected) {
 		// Detach from the shutdown-cancelled ctx so an in-flight aggregation at

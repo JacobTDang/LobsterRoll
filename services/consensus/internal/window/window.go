@@ -22,9 +22,10 @@ import (
 // already fired so a signal is emitted only when the cohort first reaches the
 // threshold and again each time it grows.
 type Store struct {
-	db     *sql.DB
-	window time.Duration
-	now    func() time.Time
+	db         *sql.DB
+	window     time.Duration
+	minWallets int
+	now        func() time.Time
 }
 
 // Cohort is the distinct-wallet set for a (token_id, side) within the window.
@@ -37,9 +38,9 @@ type Cohort struct {
 func (c Cohort) Count() int { return len(c.Wallets) }
 
 // Open opens (creating if needed) the database at path and ensures the schema.
-// window is the rolling retention/aggregation window; now supplies the clock
-// (pass nil for time.Now).
-func Open(ctx context.Context, path string, window time.Duration, now func() time.Time) (*Store, error) {
+// window is the rolling retention/aggregation window; minWallets is the distinct-
+// cohort size that triggers a signal; now supplies the clock (pass nil for time.Now).
+func Open(ctx context.Context, path string, window time.Duration, minWallets int, now func() time.Time) (*Store, error) {
 	if now == nil {
 		now = time.Now
 	}
@@ -78,24 +79,30 @@ func Open(ctx context.Context, path string, window time.Duration, now func() tim
 		db.Close()
 		return nil, fmt.Errorf("create schema: %w", err)
 	}
-	return &Store{db: db, window: window, now: now}, nil
+	return &Store{db: db, window: window, minWallets: minWallets, now: now}, nil
 }
 
 // Close closes the database.
 func (s *Store) Close() error { return s.db.Close() }
 
-// Record ingests a detected trade: it inserts the event, prunes rows older than
-// the window, and returns the resulting distinct-wallet cohort for the event's
-// (token_id, side) within the window. Distinct wallets are de-duplicated by
-// lowercased address. The trade's USDC value is size*price (unparseable => 0).
-func (s *Store) Record(ctx context.Context, ev bus.TradeDetected) (Cohort, error) {
+// Record ingests a detected trade and, in one transaction, inserts the event,
+// prunes rows older than the window, computes the distinct-wallet cohort for the
+// event's (token_id, side), and decides whether to fire a consensus signal.
+//
+// Fire semantics (high-water per token+side): fire when the cohort first reaches
+// minWallets and again each time it grows to a NEW maximum. When the live cohort
+// falls BELOW minWallets the high-water is reset to 0, so a cohort that fully
+// dissipates and later re-forms fires again. A repeat at the same size does not
+// fire. Distinct wallets are de-duplicated by lowercased address; the trade's
+// USDC value is size*price (unparseable => 0).
+func (s *Store) Record(ctx context.Context, ev bus.TradeDetected) (Cohort, bool, error) {
 	now := s.now()
 	nowUnix := now.Unix()
 	cutoff := now.Add(-s.window).Unix()
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return Cohort{}, fmt.Errorf("begin: %w", err)
+		return Cohort{}, false, fmt.Errorf("begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
@@ -108,12 +115,12 @@ func (s *Store) Record(ctx context.Context, ev bus.TradeDetected) (Cohort, error
 		`INSERT INTO trade_events (token_id, side, wallet, usdc, observed_unix)
 		 VALUES (?, ?, ?, ?, ?)`,
 		token, side, wallet, usdc, nowUnix); err != nil {
-		return Cohort{}, fmt.Errorf("insert event: %w", err)
+		return Cohort{}, false, fmt.Errorf("insert event: %w", err)
 	}
 
 	if _, err := tx.ExecContext(ctx,
 		`DELETE FROM trade_events WHERE observed_unix < ?`, cutoff); err != nil {
-		return Cohort{}, fmt.Errorf("prune: %w", err)
+		return Cohort{}, false, fmt.Errorf("prune: %w", err)
 	}
 
 	rows, err := tx.QueryContext(ctx,
@@ -122,58 +129,72 @@ func (s *Store) Record(ctx context.Context, ev bus.TradeDetected) (Cohort, error
 		 GROUP BY wallet`,
 		token, side, cutoff)
 	if err != nil {
-		return Cohort{}, fmt.Errorf("aggregate: %w", err)
+		return Cohort{}, false, fmt.Errorf("aggregate: %w", err)
 	}
-	defer rows.Close()
-
 	var c Cohort
 	for rows.Next() {
 		var w string
 		var sum float64
 		if err := rows.Scan(&w, &sum); err != nil {
-			return Cohort{}, fmt.Errorf("scan: %w", err)
+			rows.Close()
+			return Cohort{}, false, fmt.Errorf("scan: %w", err)
 		}
 		c.Wallets = append(c.Wallets, w)
 		c.CombinedUSD += sum
 	}
 	if err := rows.Err(); err != nil {
-		return Cohort{}, fmt.Errorf("rows: %w", err)
+		rows.Close()
+		return Cohort{}, false, fmt.Errorf("rows: %w", err)
 	}
+	rows.Close()
 	sort.Strings(c.Wallets)
 
-	if err := tx.Commit(); err != nil {
-		return Cohort{}, fmt.Errorf("commit: %w", err)
+	fire, err := s.decideFire(ctx, tx, token, side, c.Count(), nowUnix)
+	if err != nil {
+		return Cohort{}, false, err
 	}
-	return c, nil
+
+	if err := tx.Commit(); err != nil {
+		return Cohort{}, false, fmt.Errorf("commit: %w", err)
+	}
+	return c, fire, nil
 }
 
-// ShouldFire reports whether a signal should be emitted for this (token_id,
-// side) at the given cohort count: it returns true the first time count reaches
-// or exceeds the threshold and again only when count grows beyond the largest
-// count already fired. It records the new high-water count when it returns true.
-// A repeat at the same (or smaller) cohort size returns false.
-func (s *Store) ShouldFire(ctx context.Context, tokenID, side string, count int) (bool, error) {
-	side = strings.ToLower(side)
+// decideFire applies the high-water fire policy inside the caller's transaction.
+func (s *Store) decideFire(ctx context.Context, tx *sql.Tx, token, side string, count int, nowUnix int64) (bool, error) {
 	var prev int
-	err := s.db.QueryRowContext(ctx,
-		`SELECT count FROM fired WHERE token_id = ? AND side = ?`,
-		tokenID, side).Scan(&prev)
+	err := tx.QueryRowContext(ctx,
+		`SELECT count FROM fired WHERE token_id = ? AND side = ?`, token, side).Scan(&prev)
 	switch {
 	case err == sql.ErrNoRows:
 		prev = 0
 	case err != nil:
 		return false, fmt.Errorf("read fired: %w", err)
 	}
-	if count <= prev {
+
+	switch {
+	case count < s.minWallets:
+		// Cohort dissipated below threshold: reset so a fresh cohort can re-fire.
+		if prev != 0 {
+			if _, err := tx.ExecContext(ctx,
+				`DELETE FROM fired WHERE token_id = ? AND side = ?`, token, side); err != nil {
+				return false, fmt.Errorf("reset fired: %w", err)
+			}
+		}
+		return false, nil
+	case count > prev:
+		// First reach of the threshold, or growth to a new maximum: fire.
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO fired (token_id, side, count, fired_unix) VALUES (?, ?, ?, ?)
+			 ON CONFLICT(token_id, side) DO UPDATE SET count = excluded.count, fired_unix = excluded.fired_unix`,
+			token, side, count, nowUnix); err != nil {
+			return false, fmt.Errorf("update fired: %w", err)
+		}
+		return true, nil
+	default:
+		// At or below the high-water (but still >= threshold): already fired.
 		return false, nil
 	}
-	if _, err := s.db.ExecContext(ctx,
-		`INSERT INTO fired (token_id, side, count, fired_unix) VALUES (?, ?, ?, ?)
-		 ON CONFLICT(token_id, side) DO UPDATE SET count = excluded.count, fired_unix = excluded.fired_unix`,
-		tokenID, side, count, s.now().Unix()); err != nil {
-		return false, fmt.Errorf("update fired: %w", err)
-	}
-	return true, nil
 }
 
 // usdcValue returns size*price as a float, or 0 if either is unparseable.

@@ -195,6 +195,11 @@ func (w *Watcher) subscribe(ctx context.Context) error {
 			}
 			return nil
 		case l := <-ch:
+			if l.Removed {
+				// A reorg dropped this log; never publish it as a fresh trade.
+				w.log.Warn("skipping reorg-removed log", "block", l.BlockNumber, "tx", l.TxHash.Hex(), "idx", l.Index)
+				continue
+			}
 			if len(buf) > 0 && l.BlockNumber > pendingBlock {
 				// The previous block is complete: flush it atomically + advance.
 				if err := w.processBatch(ctx, buf, pendingBlock, true); err != nil {

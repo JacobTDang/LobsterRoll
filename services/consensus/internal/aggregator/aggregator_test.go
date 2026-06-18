@@ -50,13 +50,13 @@ func (c *clock) advance(d time.Duration) {
 
 func newAgg(t *testing.T, min int, win time.Duration, now func() time.Time) (*Aggregator, *fakePub) {
 	t.Helper()
-	st, err := window.Open(context.Background(), filepath.Join(t.TempDir(), "c.db"), win, now)
+	st, err := window.Open(context.Background(), filepath.Join(t.TempDir(), "c.db"), win, min, now)
 	if err != nil {
 		t.Fatalf("window.Open: %v", err)
 	}
 	t.Cleanup(func() { st.Close() })
 	fp := &fakePub{}
-	return New(st, fp, min, win, now, nil), fp
+	return New(st, fp, win, now, nil), fp
 }
 
 func trade(wallet, token, side, size, price string) bus.TradeDetected {
