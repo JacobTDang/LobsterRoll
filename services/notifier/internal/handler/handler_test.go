@@ -185,7 +185,7 @@ func TestHandle_SendFailureNotDeduped(t *testing.T) {
 func TestHandle_WithStats_RendersStatsLine(t *testing.T) {
 	enr := fakeEnricher{resp: &lobsterrollv1.EnrichTokenResponse{MarketQuestion: "Q", Outcome: "Yes"}}
 	st := &fakeStats{resp: &lobsterrollv1.WalletStats{
-		WinRate: 0.65, ResolvedMarkets: 29, RealizedPnl: 31_000_000, PortfolioValue: 1200, Roi: 0.42, Found: true,
+		WinRate: 0.65, ResolvedMarkets: 29, RealizedPnl: 31_000_000, PortfolioValue: 1200, Roi: 0.42, SkillScore: 87, Found: true,
 	}}
 	snd := &fakeSender{}
 	New(enr, st, snd, "1", dd(), cd(), quiet()).Handle(context.Background(), trade)
@@ -196,7 +196,7 @@ func TestHandle_WithStats_RendersStatsLine(t *testing.T) {
 	if st.wallet != trade.Wallet {
 		t.Errorf("stats wallet = %q, want %q", st.wallet, trade.Wallet)
 	}
-	if !strings.Contains(snd.text, "👤 65% win · +42% ROI · realized +$31.0M · $1.2k portfolio (29 mkts)") {
+	if !strings.Contains(snd.text, "👤 SKILL 87 · 65% win · +42% ROI · realized +$31.0M · $1.2k portfolio (29 mkts)") {
 		t.Errorf("text missing stats line: %q", snd.text)
 	}
 }

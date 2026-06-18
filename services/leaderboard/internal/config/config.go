@@ -25,6 +25,7 @@ type Config struct {
 	StatsMinWinRate    float64       // selection gate: min win rate (0..1)
 	StatsMinPortfolio  float64       // selection gate: min portfolio value (USD)
 	StatsMinRealized   float64       // selection gate: min realized PnL (USD)
+	SkillShrinkK       float64       // skill shrinkage prior strength (equiv. resolved markets)
 	CandidateTopK      int           // top-K per window pulled into the candidate pool
 	StatsMaxCandidates int           // cap on candidates crawled per refresh
 	StatsMaxActivity   int           // cap on activity rows fetched per wallet
@@ -47,6 +48,7 @@ const (
 	defStatsMinWinRate    = 0.90    // only proven-accurate wallets
 	defStatsMinPortfolio  = 100_000 // only well-capitalized wallets ($100k+)
 	defStatsMinRealized   = 0       // optional: set to require proven net profit
+	defSkillShrinkK       = 200     // ~resolved markets before a wallet's own ROI outweighs the prior
 	defCandidateTopK      = 50      // top-K per window into the pool
 	defStatsMaxCandidates = 100     // crawl a wide pool; strict gates keep few
 	defStatsMaxActivity   = 3000
@@ -70,6 +72,7 @@ func Load(getenv func(string) string) (Config, error) {
 		StatsMinWinRate:    defStatsMinWinRate,
 		StatsMinPortfolio:  defStatsMinPortfolio,
 		StatsMinRealized:   defStatsMinRealized,
+		SkillShrinkK:       defSkillShrinkK,
 		CandidateTopK:      defCandidateTopK,
 		StatsMaxCandidates: defStatsMaxCandidates,
 		StatsMaxActivity:   defStatsMaxActivity,
@@ -110,6 +113,7 @@ func Load(getenv func(string) string) (Config, error) {
 		{"STATS_MIN_WIN_RATE", &cfg.StatsMinWinRate},
 		{"STATS_MIN_PORTFOLIO_USD", &cfg.StatsMinPortfolio},
 		{"STATS_MIN_REALIZED_PNL", &cfg.StatsMinRealized},
+		{"SKILL_SHRINKAGE_K", &cfg.SkillShrinkK},
 	} {
 		if v := getenv(p.key); v != "" {
 			f, err := strconv.ParseFloat(v, 64)
@@ -141,6 +145,9 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	if cfg.StatsMinWinRate < 0 || cfg.StatsMinWinRate > 1 {
 		return Config{}, fmt.Errorf("STATS_MIN_WIN_RATE must be in [0,1], got %v", cfg.StatsMinWinRate)
+	}
+	if cfg.SkillShrinkK <= 0 {
+		return Config{}, fmt.Errorf("SKILL_SHRINKAGE_K must be > 0, got %v", cfg.SkillShrinkK)
 	}
 	if cfg.CandidateTopK <= 0 {
 		return Config{}, fmt.Errorf("CANDIDATE_TOPK must be > 0, got %d", cfg.CandidateTopK)

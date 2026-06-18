@@ -12,6 +12,7 @@ import (
 	"github.com/JacobTDang/LobsterRoll/services/leaderboard/internal/client"
 	"github.com/JacobTDang/LobsterRoll/services/leaderboard/internal/dataapi"
 	"github.com/JacobTDang/LobsterRoll/services/leaderboard/internal/selection"
+	"github.com/JacobTDang/LobsterRoll/services/leaderboard/internal/skill"
 	"github.com/JacobTDang/LobsterRoll/services/leaderboard/internal/stats"
 	"github.com/JacobTDang/LobsterRoll/services/leaderboard/internal/store"
 )
@@ -39,6 +40,7 @@ type Broadcaster interface {
 // *store.Store satisfies it.
 type StatsStorer interface {
 	UpsertStats(ctx context.Context, r store.StatsRecord) error
+	SetSkillScore(ctx context.Context, wallet string, score int64) error
 	Replace(ctx context.Context, wallets []string) (store.Delta, error)
 	SetLastSync(ctx context.Context, unix int64) error
 }
@@ -53,6 +55,7 @@ type StatsConfig struct {
 	MinWinRate      float64       // selection gate: min win rate (0..1)
 	MinPortfolioUSD float64       // selection gate: min portfolio value
 	MinRealizedPnL  float64       // selection gate: min realized PnL
+	ShrinkK         float64       // skill shrinkage prior strength (equiv. resolved markets)
 	TopN            int           // selection: max watchset size
 	Interval        time.Duration // how often to rebuild
 	Concurrency     int           // max concurrent wallet crawls (<1 = serial)
@@ -208,6 +211,7 @@ func (s *StatsSyncer) refresh(ctx context.Context) error {
 				ResolvedMarkets: st.ResolvedMarkets,
 				RealizedPnL:     st.RealizedPnL,
 				PortfolioUSD:    value,
+				ROI:             st.ROI,
 			}
 			mu.Unlock()
 			return nil
@@ -215,6 +219,22 @@ func (s *StatsSyncer) refresh(ctx context.Context) error {
 	}
 	if err := g.Wait(); err != nil {
 		return err
+	}
+
+	// Population-wide skill: shrink each wallet's ROI toward the population mean
+	// (small samples pulled hardest), then rank selection by the shrunk ROI and
+	// persist the 0–100 skill score for the alert.
+	pop := make([]skill.Input, 0, len(statsByWallet))
+	for w, st := range statsByWallet {
+		pop = append(pop, skill.Input{Wallet: w, ROI: st.ROI, N: st.ResolvedMarkets})
+	}
+	for _, r := range skill.Shrink(pop, s.cfg.ShrinkK) {
+		st := statsByWallet[r.Wallet]
+		st.ShrunkROI = r.ShrunkROI
+		statsByWallet[r.Wallet] = st
+		if err := s.store.SetSkillScore(ctx, r.Wallet, int64(r.Score)); err != nil {
+			return err
+		}
 	}
 
 	watchset := selection.Select(cands, statsByWallet, selection.Criteria{

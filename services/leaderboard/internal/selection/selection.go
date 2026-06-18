@@ -2,25 +2,24 @@
 // the top N, excluding wallets that haven't resolved enough markets to trust.
 package selection
 
-import (
-	"math"
-	"sort"
-)
+import "sort"
 
 // Candidate is a wallet from the leaderboard candidate pool.
 type Candidate struct {
-	Wallet   string
+	Wallet    string
 	Profit30D float64
 }
 
-// Stats are the per-wallet consistency metrics needed to score a candidate.
-// (Mirrors stats.Stats + portfolio, kept local so selection stays a pure,
-// dependency-free ranking package.)
+// Stats are the per-wallet consistency metrics needed to gate and rank a
+// candidate. (Mirrors stats.Stats + portfolio + the skill estimate, kept local
+// so selection stays a pure, dependency-free ranking package.)
 type Stats struct {
 	WinRate         float64
 	ResolvedMarkets int
 	RealizedPnL     float64
 	PortfolioUSD    float64
+	ROI             float64 // raw ROI (input to shrinkage)
+	ShrunkROI       float64 // sample-size-shrunk ROI — the skill ranking key
 }
 
 // Criteria are the hard quality gates a wallet must clear to be tracked. A
@@ -40,21 +39,11 @@ func (c Criteria) meets(s Stats) bool {
 		s.RealizedPnL >= c.MinRealizedPnL
 }
 
-// Score is winRate * log(1 + max(0, realizedPnL)). Negative realized PnL is
-// clamped to 0 so a single big loss can't produce a NaN/negative score; such a
-// wallet still scores 0 and loses to any profitable, accurate one.
-func Score(s Stats) float64 {
-	pnl := s.RealizedPnL
-	if pnl < 0 {
-		pnl = 0
-	}
-	return s.WinRate * math.Log1p(pnl)
-}
-
 // Select returns up to topN wallets that clear every gate in crit, ranked by
-// Score descending. Candidates whose stats are missing, or that fail any gate,
-// are excluded. With strict gates the result may be far fewer than topN — that's
-// intended (quality over a fixed count). Ties break by win rate, then wallet.
+// ShrunkROI (the sample-size-shrunk skill estimate) descending. Candidates whose
+// stats are missing, or that fail any gate, are excluded. With strict gates the
+// result may be far fewer than topN — that's intended (quality over a fixed
+// count). Ties break by win rate, then wallet.
 func Select(candidates []Candidate, statsByWallet map[string]Stats, crit Criteria, topN int) []string {
 	type scored struct {
 		wallet  string
@@ -67,7 +56,7 @@ func Select(candidates []Candidate, statsByWallet map[string]Stats, crit Criteri
 		if !ok || !crit.meets(st) {
 			continue
 		}
-		pool = append(pool, scored{wallet: c.Wallet, score: Score(st), winRate: st.WinRate})
+		pool = append(pool, scored{wallet: c.Wallet, score: st.ShrunkROI, winRate: st.WinRate})
 	}
 
 	// Rank by score, then win rate (so a pool of equal/zero scores — e.g. all

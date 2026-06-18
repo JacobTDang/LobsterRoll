@@ -19,9 +19,9 @@ func TestDiff(t *testing.T) {
 		{"all removed", []string{"a", "b"}, nil, nil, []string{"a", "b"}},
 		{"identical", []string{"a", "b"}, []string{"b", "a"}, nil, nil},
 		{
-			name: "partial overlap",
-			old:  []string{"a", "b", "c"},
-			new:  []string{"b", "c", "d"},
+			name:        "partial overlap",
+			old:         []string{"a", "b", "c"},
+			new:         []string{"b", "c", "d"},
 			wantAdded:   []string{"d"},
 			wantRemoved: []string{"a"},
 		},

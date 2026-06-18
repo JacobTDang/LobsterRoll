@@ -25,6 +25,7 @@ data:
   STATS_MIN_PORTFOLIO_USD: "100000" # >=$100k portfolio
   STATS_MIN_RESOLVED: "20"          # >=20 resolved markets (so 90% is meaningful)
   STATS_MIN_REALIZED_PNL: "0"       # raise to require proven net profit
+  SKILL_SHRINKAGE_K: "200"       # ~resolved markets before a wallet's own ROI outweighs the prior
   CANDIDATE_TOPK: "50"
   STATS_MAX_CANDIDATES: "100"
   STATS_CONCURRENCY: "8"

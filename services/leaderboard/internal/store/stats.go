@@ -15,6 +15,7 @@ type StatsRecord struct {
 	ResolvedMarkets int64
 	RealizedPnL     float64
 	ROI             float64
+	SkillScore      int64 // 0–100 percentile by shrunk ROI within the population
 	Profit30D       float64
 	PortfolioValue  float64
 	TradedMarkets   int64
@@ -40,11 +41,28 @@ func (s *Store) ensureStatsSchema(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("create wallet_stats schema: %w", err)
 	}
-	// Migrate older stats DBs that predate roi; ignore "duplicate column".
-	if _, err := s.db.ExecContext(ctx,
-		`ALTER TABLE wallet_stats ADD COLUMN roi REAL NOT NULL DEFAULT 0`); err != nil &&
-		!strings.Contains(err.Error(), "duplicate column") {
-		return fmt.Errorf("migrate wallet_stats.roi: %w", err)
+	// Migrate older stats DBs forward; ignore "duplicate column".
+	for _, col := range []string{
+		`ALTER TABLE wallet_stats ADD COLUMN roi REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE wallet_stats ADD COLUMN skill_score INTEGER NOT NULL DEFAULT 0`,
+	} {
+		if _, err := s.db.ExecContext(ctx, col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+			return fmt.Errorf("migrate wallet_stats: %w", err)
+		}
+	}
+	return nil
+}
+
+// SetSkillScore updates only the skill score for wallet (computed population-wide
+// after the per-wallet stats are upserted). No-op if the row is absent.
+func (s *Store) SetSkillScore(ctx context.Context, wallet string, score int64) error {
+	if err := s.ensureStatsSchema(ctx); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE wallet_stats SET skill_score = ? WHERE proxy_wallet = ?`, score, wallet)
+	if err != nil {
+		return fmt.Errorf("set skill score %s: %w", wallet, err)
 	}
 	return nil
 }
@@ -82,10 +100,10 @@ func (s *Store) GetStats(ctx context.Context, wallet string) (StatsRecord, bool,
 	}
 	r := StatsRecord{Wallet: wallet}
 	err := s.db.QueryRowContext(ctx,
-		`SELECT win_rate, resolved_markets, realized_pnl, profit_30d, portfolio_value, traded_markets, computed_unix, roi
+		`SELECT win_rate, resolved_markets, realized_pnl, profit_30d, portfolio_value, traded_markets, computed_unix, roi, skill_score
 		   FROM wallet_stats WHERE proxy_wallet = ?`, wallet).
 		Scan(&r.WinRate, &r.ResolvedMarkets, &r.RealizedPnL, &r.Profit30D,
-			&r.PortfolioValue, &r.TradedMarkets, &r.ComputedUnix, &r.ROI)
+			&r.PortfolioValue, &r.TradedMarkets, &r.ComputedUnix, &r.ROI, &r.SkillScore)
 	if errors.Is(err, sql.ErrNoRows) {
 		return StatsRecord{}, false, nil
 	}

@@ -90,19 +90,18 @@ func TestSelect_DeterministicTieBreak(t *testing.T) {
 	}
 }
 
-func TestSelect_NegativePnLScoresZero(t *testing.T) {
+func TestSelect_RanksByShrunkROI(t *testing.T) {
 	cands := []Candidate{{Wallet: "0xloser"}, {Wallet: "0xwinner"}}
 	stats := map[string]Stats{
-		"0xloser":  {WinRate: 0.5, ResolvedMarkets: 30, RealizedPnL: -100_000},
-		"0xwinner": {WinRate: 0.4, ResolvedMarkets: 30, RealizedPnL: 10},
+		// Higher win rate but a NEGATIVE skill-adjusted ROI...
+		"0xloser": {WinRate: 0.5, ResolvedMarkets: 30, RealizedPnL: -100_000, ShrunkROI: -0.20},
+		// ...loses to the lower-win-rate wallet whose shrunk ROI is positive.
+		"0xwinner": {WinRate: 0.4, ResolvedMarkets: 30, RealizedPnL: 10, ShrunkROI: 0.15},
 	}
-	// Loosen the realized-PnL gate so the loser isn't filtered out — this test is
-	// about Score clamping negative PnL to 0, not the gate.
 	got := Select(cands, stats, Criteria{MinResolved: 20, MinRealizedPnL: -1_000_000}, 10)
-	// loser scores 0 (clamped pnl), winner scores >0 -> winner ranks first.
 	want := []string{"0xwinner", "0xloser"}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("Select = %v, want %v", got, want)
+		t.Fatalf("Select = %v, want %v (rank by shrunk ROI, not win rate)", got, want)
 	}
 }
 

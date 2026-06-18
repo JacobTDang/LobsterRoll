@@ -122,6 +122,10 @@ func TestStatsRefresh_BuildsWatchsetFromSelection(t *testing.T) {
 	if rec.Profit30D != 1000 {
 		t.Errorf("Profit30D = %v, want 1000 (from 30d window)", rec.Profit30D)
 	}
+	// Skill score was computed population-wide and persisted (a valid percentile).
+	if rec.SkillScore < 0 || rec.SkillScore > 100 {
+		t.Errorf("SkillScore = %d, want a 0-100 percentile", rec.SkillScore)
+	}
 	if bc.count() != 1 {
 		t.Errorf("broadcasts = %d, want 1", bc.count())
 	}

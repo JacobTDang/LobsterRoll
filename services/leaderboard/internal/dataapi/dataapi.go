@@ -114,4 +114,3 @@ func (c *Client) Value(ctx context.Context, wallet string) (float64, error) {
 	}
 	return rows[0].Value, nil
 }
-
