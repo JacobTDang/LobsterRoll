@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 
@@ -39,7 +40,10 @@ func run(ctx context.Context, log *slog.Logger) error {
 	defer conn.Close()
 	enrich := lobsterrollv1.NewEnrichmentClient(conn)
 
-	tg := telegram.New(telegram.DefaultBaseURL, cfg.TelegramToken, nil)
+	// Give the HTTP client a timeout comfortably above the long-poll duration so
+	// getUpdates is never cut short (and can't deadlock if longPollSec is raised).
+	hc := &http.Client{Timeout: time.Duration(longPollSec)*time.Second + 20*time.Second}
+	tg := telegram.New(telegram.DefaultBaseURL, cfg.TelegramToken, hc)
 	pub, err := bus.Connect(cfg.NATSURL)
 	if err != nil {
 		return err
@@ -103,9 +107,13 @@ func pollUpdates(ctx context.Context, tg *telegram.Client, mgr *approval.Manager
 			}
 			switch {
 			case u.CallbackQuery != nil:
-				mgr.HandleCallback(ctx, *u.CallbackQuery)
+				dctx, cancel := detached(ctx)
+				mgr.HandleCallback(dctx, *u.CallbackQuery)
+				cancel()
 			case u.Message != nil && strings.HasPrefix(u.Message.Text, "/"):
-				mgr.HandleCommand(ctx, u.Message.Text, u.Message.From.Username)
+				dctx, cancel := detached(ctx)
+				mgr.HandleCommand(dctx, u.Message.Text, u.Message.Chat.ID, u.Message.From.Username)
+				cancel()
 			}
 		}
 	}

@@ -1,4 +1,6 @@
-// Package telegram is a minimal Telegram Bot API client (sendMessage only).
+// Package telegram is a minimal Telegram Bot API client: sending messages
+// (plain and with inline keyboards), long-poll getUpdates, and answering/editing
+// callbacks. All methods share a 429-aware request path.
 package telegram
 
 import (
@@ -39,8 +41,9 @@ type sendMessageReq struct {
 }
 
 type apiResp struct {
-	OK          bool   `json:"ok"`
-	Description string `json:"description"`
+	OK          bool            `json:"ok"`
+	Description string          `json:"description"`
+	Result      json.RawMessage `json:"result"`
 	Parameters  struct {
 		RetryAfter int `json:"retry_after"`
 	} `json:"parameters"`
@@ -120,88 +123,49 @@ func (c *Client) EditMessageText(ctx context.Context, chatID string, messageID i
 	return c.call(ctx, "editMessageText", payload, nil)
 }
 
-// GetUpdates long-polls for updates after offset, waiting up to timeoutSec.
+// pollBuffer is the headroom added to a long-poll's own request deadline so the
+// request is never cut short by less than the server's hold time.
+const pollBuffer = 15 * time.Second
+
+// GetUpdates long-polls for updates after offset, waiting up to timeoutSec. The
+// request is given its own deadline of timeoutSec+pollBuffer so it can't be cut
+// short regardless of the http client's configured timeout.
 func (c *Client) GetUpdates(ctx context.Context, offset, timeoutSec int) ([]Update, error) {
+	rctx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second+pollBuffer)
+	defer cancel()
 	var out []Update
-	err := c.call(ctx, "getUpdates", map[string]any{"offset": offset, "timeout": timeoutSec}, &out)
+	err := c.call(rctx, "getUpdates", map[string]any{"offset": offset, "timeout": timeoutSec}, &out)
 	return out, err
 }
 
+// Send posts text to chatID via sendMessage.
+func (c *Client) Send(ctx context.Context, chatID, text string) error {
+	return c.call(ctx, "sendMessage", sendMessageReq{ChatID: chatID, Text: text}, nil)
+}
+
 // call POSTs a Bot API method and unmarshals the `result` field into out (if
-// non-nil). It returns an error on transport failure, non-200, or ok:false.
+// non-nil). On HTTP 429 it honors retry_after and retries (ctx-aware). It
+// returns an error on transport failure, non-200, or ok:false.
 func (c *Client) call(ctx context.Context, method string, payload, out any) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("marshal %s: %w", method, err)
 	}
 	url := fmt.Sprintf("%s/bot%s/%s", c.baseURL, c.token, method)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("build %s request: %w", method, err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return fmt.Errorf("%s: %w", method, err)
-	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s: status %d: %s", method, resp.StatusCode, raw)
-	}
-	var r struct {
-		OK          bool            `json:"ok"`
-		Description string          `json:"description"`
-		Result      json.RawMessage `json:"result"`
-	}
-	if err := json.Unmarshal(raw, &r); err != nil {
-		return fmt.Errorf("%s decode: %w", method, err)
-	}
-	if !r.OK {
-		return fmt.Errorf("%s: telegram error: %s", method, r.Description)
-	}
-	if out != nil && len(r.Result) > 0 {
-		if err := json.Unmarshal(r.Result, out); err != nil {
-			return fmt.Errorf("%s decode result: %w", method, err)
-		}
-	}
-	return nil
-}
-
-// Send posts text to chatID via sendMessage. On HTTP 429 it honors the
-// retry_after the API returns and retries once (ctx-aware).
-func (c *Client) Send(ctx context.Context, chatID, text string) error {
-	body, err := json.Marshal(sendMessageReq{ChatID: chatID, Text: text})
-	if err != nil {
-		return fmt.Errorf("marshal: %w", err)
-	}
-	url := fmt.Sprintf("%s/bot%s/sendMessage", c.baseURL, c.token)
 
 	for attempt := 0; attempt < maxSendAttempts; attempt++ {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 		if err != nil {
-			return fmt.Errorf("build request: %w", err)
+			return fmt.Errorf("build %s request: %w", method, err)
 		}
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := c.http.Do(req)
 		if err != nil {
-			return fmt.Errorf("send message: %w", err)
+			return fmt.Errorf("%s: %w", method, err)
 		}
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		resp.Body.Close()
-
-		if resp.StatusCode == http.StatusOK {
-			var r apiResp
-			if err := json.Unmarshal(raw, &r); err != nil {
-				return fmt.Errorf("decode response: %w", err)
-			}
-			if !r.OK {
-				return fmt.Errorf("telegram error: %s", r.Description)
-			}
-			return nil
-		}
 
 		if resp.StatusCode == http.StatusTooManyRequests && attempt < maxSendAttempts-1 {
 			var r apiResp
@@ -217,7 +181,30 @@ func (c *Client) Send(ctx context.Context, chatID, text string) error {
 			}
 			continue
 		}
-		return fmt.Errorf("telegram status %d: %s", resp.StatusCode, raw)
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("%s: status %d: %s", method, resp.StatusCode, truncate(raw, 256))
+		}
+
+		var r apiResp
+		if err := json.Unmarshal(raw, &r); err != nil {
+			return fmt.Errorf("%s decode: %w", method, err)
+		}
+		if !r.OK {
+			return fmt.Errorf("%s: telegram error: %s", method, r.Description)
+		}
+		if out != nil && len(r.Result) > 0 {
+			if err := json.Unmarshal(r.Result, out); err != nil {
+				return fmt.Errorf("%s decode result: %w", method, err)
+			}
+		}
+		return nil
 	}
-	return fmt.Errorf("telegram: gave up after %d attempts (rate limited)", maxSendAttempts)
+	return fmt.Errorf("%s: gave up after %d attempts (rate limited)", method, maxSendAttempts)
+}
+
+func truncate(b []byte, max int) string {
+	if len(b) <= max {
+		return string(b)
+	}
+	return string(b[:max]) + "…"
 }
