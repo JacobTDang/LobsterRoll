@@ -2,7 +2,9 @@
 package config
 
 import (
+	"fmt"
 	"os"
+	"time"
 
 	"github.com/JacobTDang/LobsterRoll/services/enrichment/internal/client"
 )
@@ -12,20 +14,31 @@ type Config struct {
 	GammaBase string
 	DBPath    string
 	GRPCAddr  string
+	CacheTTL  time.Duration // re-fetch cached enrichments older than this; 0 = never
 }
 
 const (
 	defDBPath   = "enrichment.db"
 	defGRPCAddr = ":50052"
+	defCacheTTL = 24 * time.Hour
 )
 
 // Load resolves config using getenv, applying defaults.
 func Load(getenv func(string) string) (Config, error) {
-	return Config{
+	cfg := Config{
 		GammaBase: orDefault(getenv("ENRICHMENT_GAMMA_BASE"), client.DefaultBaseURL),
 		DBPath:    orDefault(getenv("ENRICHMENT_DB_PATH"), defDBPath),
 		GRPCAddr:  orDefault(getenv("ENRICHMENT_GRPC_ADDR"), defGRPCAddr),
-	}, nil
+		CacheTTL:  defCacheTTL,
+	}
+	if v := getenv("ENRICHMENT_CACHE_TTL"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("ENRICHMENT_CACHE_TTL: %w", err)
+		}
+		cfg.CacheTTL = d
+	}
+	return cfg, nil
 }
 
 // LoadFromEnv loads config from the process environment.

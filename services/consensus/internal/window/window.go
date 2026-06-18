@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/JacobTDang/LobsterRoll/pkg/bus"
-	_ "modernc.org/sqlite" // CGO-free SQLite driver, registered as "sqlite".
+	"github.com/JacobTDang/LobsterRoll/pkg/sqlitex"
 )
 
 // Store records trade events and reports the distinct-wallet cohort per
@@ -44,20 +44,9 @@ func Open(ctx context.Context, path string, window time.Duration, minWallets int
 	if now == nil {
 		now = time.Now
 	}
-	db, err := sql.Open("sqlite", path)
+	db, err := sqlitex.Open(ctx, path)
 	if err != nil {
-		return nil, fmt.Errorf("open sqlite %q: %w", path, err)
-	}
-	db.SetMaxOpenConns(1)
-	for _, pragma := range []string{
-		"PRAGMA busy_timeout=5000",
-		"PRAGMA journal_mode=WAL",
-		"PRAGMA synchronous=NORMAL",
-	} {
-		if _, err := db.ExecContext(ctx, pragma); err != nil {
-			db.Close()
-			return nil, fmt.Errorf("set %q: %w", pragma, err)
-		}
+		return nil, err
 	}
 	if _, err := db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS trade_events (

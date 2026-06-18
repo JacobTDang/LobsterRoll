@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"time"
 
-	_ "modernc.org/sqlite" // CGO-free SQLite driver, registered as "sqlite".
+	"github.com/JacobTDang/LobsterRoll/pkg/sqlitex"
 )
 
 // Delta describes how a watchset changed: wallets newly added and wallets
@@ -60,24 +60,9 @@ type Store struct {
 // Open opens (creating if needed) the watchset database at path and ensures the
 // schema exists.
 func Open(ctx context.Context, path string) (*Store, error) {
-	db, err := sql.Open("sqlite", path)
+	db, err := sqlitex.Open(ctx, path)
 	if err != nil {
-		return nil, fmt.Errorf("open sqlite %q: %w", path, err)
-	}
-	// modernc's driver is safe for concurrent use, but a single writer avoids
-	// "database is locked" under concurrent writes.
-	db.SetMaxOpenConns(1)
-	// WAL + busy_timeout improve durability and avoid surfacing transient lock
-	// contention as immediate errors. synchronous=NORMAL is safe under WAL.
-	for _, pragma := range []string{
-		"PRAGMA busy_timeout=5000",
-		"PRAGMA journal_mode=WAL",
-		"PRAGMA synchronous=NORMAL",
-	} {
-		if _, err := db.ExecContext(ctx, pragma); err != nil {
-			db.Close()
-			return nil, fmt.Errorf("set %q: %w", pragma, err)
-		}
+		return nil, err
 	}
 	if _, err := db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS watchset (

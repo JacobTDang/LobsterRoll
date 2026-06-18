@@ -6,13 +6,14 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/JacobTDang/LobsterRoll/services/enrichment/internal/client"
 )
 
 func openTemp(t *testing.T) *Cache {
 	t.Helper()
-	c, err := Open(context.Background(), filepath.Join(t.TempDir(), "c.db"))
+	c, err := Open(context.Background(), filepath.Join(t.TempDir(), "c.db"), time.Hour)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -52,6 +53,44 @@ func TestCache_Replace(t *testing.T) {
 	got, _, _ := c.Get(ctx, "t")
 	if got.MarketQuestion != "new" || got.Outcome != "Yes" {
 		t.Fatalf("got %+v, want new/Yes", got)
+	}
+}
+
+func TestCache_TTLExpiry(t *testing.T) {
+	ctx := context.Background()
+	c := openTemp(t)
+	c.ttl = time.Hour
+	base := time.Unix(1_700_000_000, 0)
+	c.now = func() time.Time { return base }
+
+	if err := c.Put(ctx, "t", client.Enrichment{MarketQuestion: "Q", EndDateUnix: 42}); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	// Within TTL -> hit.
+	c.now = func() time.Time { return base.Add(59 * time.Minute) }
+	if _, hit, err := c.Get(ctx, "t"); err != nil || !hit {
+		t.Fatalf("within TTL: hit=%v err=%v, want hit", hit, err)
+	}
+	// Past TTL -> miss (so the caller re-fetches the stale row).
+	c.now = func() time.Time { return base.Add(2 * time.Hour) }
+	if _, hit, err := c.Get(ctx, "t"); err != nil || hit {
+		t.Fatalf("past TTL: hit=%v err=%v, want miss", hit, err)
+	}
+}
+
+func TestCache_TTLDisabled(t *testing.T) {
+	ctx := context.Background()
+	c, err := Open(ctx, filepath.Join(t.TempDir(), "c.db"), 0) // 0 = never expire
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { c.Close() })
+	base := time.Unix(1_700_000_000, 0)
+	c.now = func() time.Time { return base }
+	_ = c.Put(ctx, "t", client.Enrichment{MarketQuestion: "Q"})
+	c.now = func() time.Time { return base.Add(1000 * time.Hour) }
+	if _, hit, err := c.Get(ctx, "t"); err != nil || !hit {
+		t.Fatalf("ttl=0 should never expire: hit=%v err=%v", hit, err)
 	}
 }
 

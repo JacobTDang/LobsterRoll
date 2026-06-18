@@ -29,9 +29,9 @@ func run(ctx context.Context, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	log.Info("config loaded", "gamma", cfg.GammaBase, "db", cfg.DBPath, "grpc", cfg.GRPCAddr)
+	log.Info("config loaded", "gamma", cfg.GammaBase, "db", cfg.DBPath, "grpc", cfg.GRPCAddr, "cacheTTL", cfg.CacheTTL)
 
-	cch, err := cache.Open(ctx, cfg.DBPath)
+	cch, err := cache.Open(ctx, cfg.DBPath, cfg.CacheTTL)
 	if err != nil {
 		return err
 	}

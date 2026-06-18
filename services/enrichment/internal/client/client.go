@@ -13,11 +13,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"slices"
 	"time"
+
+	"github.com/JacobTDang/LobsterRoll/pkg/httpx"
 )
 
 // DefaultBaseURL is the public Polymarket gamma host.
@@ -105,30 +106,17 @@ func New(baseURL string, hc *http.Client) *Client {
 	return &Client{baseURL: baseURL, http: hc}
 }
 
-// Fetch resolves tokenID. ok=false (no error) means not found.
+// Fetch resolves tokenID. ok=false (no error) means not found. The GET goes
+// through httpx for a shared User-Agent + bounded retry/backoff on transient
+// failures (429/5xx/network), matching the other Polymarket clients.
 func (c *Client) Fetch(ctx context.Context, tokenID string) (Enrichment, bool, error) {
 	q := url.Values{}
 	q.Set("clob_token_ids", tokenID)
 	endpoint := c.baseURL + "/markets?" + q.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	body, err := httpx.Get(ctx, c.http, endpoint, userAgent, 1<<20)
 	if err != nil {
-		return Enrichment{}, false, fmt.Errorf("build request: %w", err)
-	}
-	req.Header.Set("User-Agent", userAgent)
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return Enrichment{}, false, fmt.Errorf("fetch enrichment: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return Enrichment{}, false, fmt.Errorf("read body: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return Enrichment{}, false, fmt.Errorf("gamma markets: status %d", resp.StatusCode)
+		return Enrichment{}, false, fmt.Errorf("gamma markets: %w", err)
 	}
 	return Resolve(body, tokenID)
 }

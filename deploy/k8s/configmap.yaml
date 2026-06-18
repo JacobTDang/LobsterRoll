@@ -12,6 +12,9 @@ data:
   LEADERBOARD_GRPC_ADDR: "leaderboard:50051"
   ENRICHMENT_GRPC_ADDR: "enrichment:50052"
 
+  # ---- enrichment ----
+  ENRICHMENT_CACHE_TTL: "24h" # re-fetch cached market metadata older than this (0 = never)
+
   # ---- leaderboard: track top-30 consistent winners, refresh daily ----
   LEADERBOARD_WINDOW: "30d"
   LEADERBOARD_METRIC: "pnl"
