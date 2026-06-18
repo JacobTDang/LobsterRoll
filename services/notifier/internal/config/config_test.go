@@ -11,7 +11,8 @@ func TestLoad_Defaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.NATSURL != defNATSURL || cfg.EnrichmentAddr != defEnrichmentAddr || cfg.QueueGroup != defQueueGroup {
+	if cfg.NATSURL != defNATSURL || cfg.EnrichmentAddr != defEnrichmentAddr ||
+		cfg.LeaderboardAddr != defLeaderboardAddr || cfg.QueueGroup != defQueueGroup {
 		t.Fatalf("defaults not applied: %+v", cfg)
 	}
 }
@@ -20,17 +21,19 @@ func TestLoad_Overrides(t *testing.T) {
 	cfg, err := Load(env(map[string]string{
 		"TELEGRAM_BOT_TOKEN":   "tok",
 		"TELEGRAM_CHAT_ID":     "42",
-		"TELEGRAM_BASE_URL":    "http://localhost:8099",
-		"NATS_URL":             "nats://localhost:4222",
-		"ENRICHMENT_GRPC_ADDR": "localhost:50052",
-		"NOTIFIER_QUEUE_GROUP": "n2",
+		"TELEGRAM_BASE_URL":     "http://localhost:8099",
+		"NATS_URL":              "nats://localhost:4222",
+		"ENRICHMENT_GRPC_ADDR":  "localhost:50052",
+		"LEADERBOARD_GRPC_ADDR": "localhost:50051",
+		"NOTIFIER_QUEUE_GROUP":  "n2",
 	}))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	want := Config{
 		TelegramToken: "tok", TelegramChatID: "42", TelegramBaseURL: "http://localhost:8099",
-		NATSURL: "nats://localhost:4222", EnrichmentAddr: "localhost:50052", QueueGroup: "n2",
+		NATSURL: "nats://localhost:4222", EnrichmentAddr: "localhost:50052",
+		LeaderboardAddr: "localhost:50051", QueueGroup: "n2",
 	}
 	if cfg != want {
 		t.Fatalf("got %+v, want %+v", cfg, want)

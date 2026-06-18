@@ -30,3 +30,6 @@ vendor/
 .DS_Store
 .idea/
 .vscode/
+
+# local dev runtime (run-local / verify-alerts)
+/.local/

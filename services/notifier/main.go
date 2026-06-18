@@ -31,7 +31,7 @@ func run(ctx context.Context, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	log.Info("config loaded", "nats", cfg.NATSURL, "enrichment", cfg.EnrichmentAddr, "chat", cfg.TelegramChatID)
+	log.Info("config loaded", "nats", cfg.NATSURL, "enrichment", cfg.EnrichmentAddr, "leaderboard", cfg.LeaderboardAddr, "chat", cfg.TelegramChatID)
 
 	conn, err := grpc.NewClient(cfg.EnrichmentAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -39,6 +39,13 @@ func run(ctx context.Context, log *slog.Logger) error {
 	}
 	defer conn.Close()
 	enrich := lobsterrollv1.NewEnrichmentClient(conn)
+
+	lbConn, err := grpc.NewClient(cfg.LeaderboardAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return err
+	}
+	defer lbConn.Close()
+	leaderboard := lobsterrollv1.NewLeaderboardClient(lbConn)
 
 	// Give the HTTP client a timeout comfortably above the long-poll duration so
 	// getUpdates is never cut short (and can't deadlock if longPollSec is raised).
@@ -55,7 +62,7 @@ func run(ctx context.Context, log *slog.Logger) error {
 	}
 	defer sub.Close()
 
-	alerts := handler.New(enrich, tg, cfg.TelegramChatID, log)
+	alerts := handler.New(enrich, leaderboard, tg, cfg.TelegramChatID, log)
 	mgr := approval.New(tg, pub, cfg.TelegramChatID, log)
 
 	// One-way alerts on every detected trade.
@@ -63,6 +70,14 @@ func run(ctx context.Context, log *slog.Logger) error {
 		mctx, cancel := detached(ctx)
 		defer cancel()
 		alerts.Handle(mctx, td)
+	}); err != nil {
+		return err
+	}
+	// Premium consensus alerts when multiple tracked wallets converge on a bet.
+	if _, err := sub.OnConsensus(cfg.QueueGroup, func(sig bus.ConsensusSignal) {
+		mctx, cancel := detached(ctx)
+		defer cancel()
+		alerts.HandleConsensus(mctx, sig)
 	}); err != nil {
 		return err
 	}

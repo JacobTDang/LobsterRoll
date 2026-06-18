@@ -20,9 +20,20 @@ type Market struct {
 	LookupFailed bool
 }
 
+// WhaleStats is the resolved track record for a whale (from the leaderboard
+// cache). OK is false when no stats were available; the line is then omitted.
+type WhaleStats struct {
+	WinRate         float64 // 0..1
+	ResolvedMarkets int
+	RealizedPnlUSD  float64
+	PortfolioUSD    float64
+	OK              bool
+}
+
 // FormatAlert renders a one-way alert for a detected trade: what the whale is
-// betting on, how much (USD first), whether they're entering or exiting, and when.
-func FormatAlert(td bus.TradeDetected, m Market) string {
+// betting on, their track record (when available), how much (USD first),
+// whether they're entering or exiting, and when.
+func FormatAlert(td bus.TradeDetected, m Market, ws WhaleStats) string {
 	// A buy opens/adds to a position (ENTER); a sell closes/reduces it (EXIT).
 	emoji, action, side := "🔴", "EXIT", "SELL"
 	if strings.EqualFold(td.Side, "buy") {
@@ -39,6 +50,11 @@ func FormatAlert(td bus.TradeDetected, m Market) string {
 		fmt.Fprintf(&b, "Market lookup unavailable (token %s)\n", shortenMiddle(td.TokenID, 4, 4))
 	default:
 		fmt.Fprintf(&b, "Unknown market (token %s)\n", shortenMiddle(td.TokenID, 4, 4))
+	}
+
+	if ws.OK {
+		fmt.Fprintf(&b, "👤 %d%% win (%d mkts) · realized %s · %s portfolio\n",
+			int(ws.WinRate*100+0.5), ws.ResolvedMarkets, signedMoney(ws.RealizedPnlUSD), abbrevMoney(ws.PortfolioUSD))
 	}
 
 	fmt.Fprintf(&b, "💵 $%s  ·  %s @ $%s\n", notional(td.Size, td.Price), td.Size, td.Price)
@@ -64,6 +80,70 @@ func FormatProposal(p bus.OrderProposal) string {
 	fmt.Fprintf(&b, "whale %s filled %s @ $%s\n", shortenHex(p.SourceTrade.Wallet), p.SourceTrade.Size, p.SourceTrade.Price)
 	b.WriteString("Approve?")
 	return b.String()
+}
+
+// FormatConsensus renders the premium alert fired when multiple tracked wallets
+// converge on the same outcome token and side within a rolling window.
+func FormatConsensus(sig bus.ConsensusSignal, m Market) string {
+	side := "SELL"
+	if strings.EqualFold(sig.Side, "buy") {
+		side = "BUY"
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "🔥 CONSENSUS — %d tracked wallets %s\n", sig.Count, side)
+
+	switch {
+	case m.Found:
+		fmt.Fprintf(&b, "%s → %s\n", m.Question, m.Outcome)
+	case m.LookupFailed:
+		fmt.Fprintf(&b, "Market lookup unavailable (token %s)\n", shortenMiddle(sig.TokenID, 4, 4))
+	default:
+		fmt.Fprintf(&b, "Unknown market (token %s)\n", shortenMiddle(sig.TokenID, 4, 4))
+	}
+
+	fmt.Fprintf(&b, "%d wallets · combined %s · %s window", sig.Count, abbrevMoney(sig.CombinedUSD), humanWindow(sig.WindowSecs))
+	if m.Found && m.Slug != "" {
+		fmt.Fprintf(&b, "\n📊 https://polymarket.com/event/%s", m.Slug)
+	}
+	return b.String()
+}
+
+// abbrevMoney renders a non-negative USD magnitude compactly: $45, $1.2k,
+// $31.0M. The sign is dropped — callers that need it use signedMoney.
+func abbrevMoney(v float64) string {
+	if v < 0 {
+		v = -v
+	}
+	switch {
+	case v >= 1_000_000:
+		return fmt.Sprintf("$%.1fM", v/1_000_000)
+	case v >= 1_000:
+		return fmt.Sprintf("$%.1fk", v/1_000)
+	default:
+		return fmt.Sprintf("$%.0f", v)
+	}
+}
+
+// signedMoney prefixes abbrevMoney with an explicit sign for positive/negative
+// values; zero is rendered as "$0" without a sign.
+func signedMoney(v float64) string {
+	switch {
+	case v > 0:
+		return "+" + abbrevMoney(v)
+	case v < 0:
+		return "-" + abbrevMoney(v)
+	default:
+		return "$0"
+	}
+}
+
+// humanWindow renders a duration in seconds as a compact window like 30m or 6h.
+func humanWindow(secs int) string {
+	if secs >= 3600 {
+		return fmt.Sprintf("%dh", secs/3600)
+	}
+	return fmt.Sprintf("%dm", secs/60)
 }
 
 // notional returns size*price formatted to 2 decimals (USDC); "?" if unparsable.

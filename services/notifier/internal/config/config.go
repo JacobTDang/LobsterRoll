@@ -13,13 +13,15 @@ type Config struct {
 	TelegramBaseURL string // override the Bot API host (tests/verify); "" = default
 	NATSURL         string
 	EnrichmentAddr  string
+	LeaderboardAddr string
 	QueueGroup      string
 }
 
 const (
-	defNATSURL        = "nats://nats:4222"
-	defEnrichmentAddr = "enrichment:50052"
-	defQueueGroup     = "notifier"
+	defNATSURL         = "nats://nats:4222"
+	defEnrichmentAddr  = "enrichment:50052"
+	defLeaderboardAddr = "leaderboard:50051"
+	defQueueGroup      = "notifier"
 )
 
 // Load resolves config using getenv, applying defaults and validating.
@@ -29,8 +31,9 @@ func Load(getenv func(string) string) (Config, error) {
 		TelegramChatID:  getenv("TELEGRAM_CHAT_ID"),
 		TelegramBaseURL: getenv("TELEGRAM_BASE_URL"),
 		NATSURL:         orDefault(getenv("NATS_URL"), defNATSURL),
-		EnrichmentAddr: orDefault(getenv("ENRICHMENT_GRPC_ADDR"), defEnrichmentAddr),
-		QueueGroup:     orDefault(getenv("NOTIFIER_QUEUE_GROUP"), defQueueGroup),
+		EnrichmentAddr:  orDefault(getenv("ENRICHMENT_GRPC_ADDR"), defEnrichmentAddr),
+		LeaderboardAddr: orDefault(getenv("LEADERBOARD_GRPC_ADDR"), defLeaderboardAddr),
+		QueueGroup:      orDefault(getenv("NOTIFIER_QUEUE_GROUP"), defQueueGroup),
 	}
 	if cfg.TelegramToken == "" {
 		return Config{}, fmt.Errorf("TELEGRAM_BOT_TOKEN is required")
