@@ -38,19 +38,21 @@ type Sender interface {
 
 // Handler enriches and sends alerts.
 type Handler struct {
-	enrich Enricher
-	stats  WhaleStatsLookuper
-	sender Sender
-	chatID string
-	dedup  *dedup.TTLSet // suppresses duplicate trade alerts (watcher is at-least-once)
-	log    *slog.Logger
+	enrich   Enricher
+	stats    WhaleStatsLookuper
+	sender   Sender
+	chatID   string
+	dedup    *dedup.TTLSet // exact-trade dedup: suppresses re-emits of the SAME fill
+	cooldown *dedup.TTLSet // burst cooldown: collapses repeated wallet+market+side trades
+	log      *slog.Logger
 }
 
 // New constructs a Handler. stats may be nil to disable whale track-record
-// enrichment (alerts then render without the stats line). dd dedups repeated
-// trade alerts within its TTL.
-func New(enrich Enricher, stats WhaleStatsLookuper, sender Sender, chatID string, dd *dedup.TTLSet, log *slog.Logger) *Handler {
-	return &Handler{enrich: enrich, stats: stats, sender: sender, chatID: chatID, dedup: dd, log: log}
+// enrichment (alerts then render without the stats line). dd dedups exact
+// re-emitted trades; cooldown (may be nil) collapses a whale's repeated trades
+// on the same market+side into one alert per cooldown window.
+func New(enrich Enricher, stats WhaleStatsLookuper, sender Sender, chatID string, dd, cooldown *dedup.TTLSet, log *slog.Logger) *Handler {
+	return &Handler{enrich: enrich, stats: stats, sender: sender, chatID: chatID, dedup: dd, cooldown: cooldown, log: log}
 }
 
 // tradeKey uniquely identifies a detected trade. The on-chain (tx, logIndex)
@@ -62,13 +64,24 @@ func tradeKey(td bus.TradeDetected) string {
 		strings.ToLower(td.Wallet), td.TokenID, strings.ToLower(td.Side))
 }
 
-// Handle enriches td, formats an alert, and sends it (once). A trade already
-// alerted within the dedup TTL is skipped. Errors are logged, not returned, so
-// one bad trade can't stall the consumer.
+// cooldownKey ignores the specific tx: it groups a wallet's repeated trades on
+// the same market + side, so scaling into a position (many small fills across
+// separate txs) yields one alert per cooldown window instead of a burst.
+func cooldownKey(td bus.TradeDetected) string {
+	return fmt.Sprintf("cd:%s:%s:%s", strings.ToLower(td.Wallet), td.TokenID, strings.ToLower(td.Side))
+}
+
+// Handle enriches td, formats an alert, and sends it (once). Exact re-emits are
+// dropped; repeated wallet+market+side trades within the cooldown are collapsed.
+// Errors are logged, not returned, so one bad trade can't stall the consumer.
 func (h *Handler) Handle(ctx context.Context, td bus.TradeDetected) {
 	key := tradeKey(td)
 	if h.dedup != nil && !h.dedup.Add(key) {
 		h.log.Info("duplicate trade alert suppressed", "wallet", td.Wallet, "tx", td.TxHash)
+		return
+	}
+	if h.cooldown != nil && !h.cooldown.Add(cooldownKey(td)) {
+		h.log.Info("alert cooled down (repeat on same market+side)", "wallet", td.Wallet, "token", td.TokenID, "side", td.Side)
 		return
 	}
 
@@ -80,9 +93,12 @@ func (h *Handler) Handle(ctx context.Context, td bus.TradeDetected) {
 
 	text := format.FormatAlert(td, market, ws)
 	if err := h.sender.Send(ctx, h.chatID, text); err != nil {
-		// Un-cache so a redelivery can retry (a failed send isn't a sent message).
+		// Un-cache both so a redelivery can retry (a failed send isn't a sent message).
 		if h.dedup != nil {
 			h.dedup.Remove(key)
+		}
+		if h.cooldown != nil {
+			h.cooldown.Remove(cooldownKey(td))
 		}
 		h.log.Error("send alert failed", "wallet", td.Wallet, "tx", td.TxHash, "err", err)
 		return

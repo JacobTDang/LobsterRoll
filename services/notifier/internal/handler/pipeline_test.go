@@ -44,7 +44,7 @@ func TestPipeline_EndToEnd(t *testing.T) {
 
 	tg := telegram.New(tgsrv.URL, "TOK", tgsrv.Client())
 	enr := fakeEnricher{resp: &lobsterrollv1.EnrichTokenResponse{MarketQuestion: "Will it rain?", Outcome: "Yes"}}
-	h := New(enr, nil, tg, "555", dd(), quiet())
+	h := New(enr, nil, tg, "555", dd(), cd(), quiet())
 
 	sub, err := bus.NewSubscriber(url, nil)
 	if err != nil {

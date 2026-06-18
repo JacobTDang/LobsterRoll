@@ -55,6 +55,9 @@ func (s *fakeSender) Send(_ context.Context, chatID, text string) error {
 
 func dd() *dedup.TTLSet { return dedup.New(time.Hour) }
 
+// cd is a cooldown set for tests; nil-equivalent behavior is tested separately.
+func cd() *dedup.TTLSet { return dedup.New(time.Hour) }
+
 func quiet() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
 var trade = bus.TradeDetected{
@@ -66,7 +69,7 @@ var trade = bus.TradeDetected{
 func TestHandle_Enriched(t *testing.T) {
 	enr := fakeEnricher{resp: &lobsterrollv1.EnrichTokenResponse{MarketQuestion: "Ghana vs. Panama: O/U 2.5", Outcome: "Over"}}
 	snd := &fakeSender{}
-	New(enr, nil, snd, "999", dd(), quiet()).Handle(context.Background(), trade)
+	New(enr, nil, snd, "999", dd(), cd(), quiet()).Handle(context.Background(), trade)
 
 	if snd.calls != 1 {
 		t.Fatalf("send calls = %d, want 1", snd.calls)
@@ -85,7 +88,7 @@ func TestHandle_Enriched(t *testing.T) {
 func TestHandle_DeduplicatesRepeatTrade(t *testing.T) {
 	enr := fakeEnricher{resp: &lobsterrollv1.EnrichTokenResponse{MarketQuestion: "Q", Outcome: "Yes"}}
 	snd := &fakeSender{}
-	h := New(enr, nil, snd, "1", dd(), quiet())
+	h := New(enr, nil, snd, "1", dd(), cd(), quiet())
 
 	h.Handle(context.Background(), trade)
 	h.Handle(context.Background(), trade) // same trade re-emitted by the watcher
@@ -102,10 +105,47 @@ func TestHandle_DeduplicatesRepeatTrade(t *testing.T) {
 	}
 }
 
+func TestHandle_CooldownCollapsesScalingIn(t *testing.T) {
+	enr := fakeEnricher{resp: &lobsterrollv1.EnrichTokenResponse{MarketQuestion: "Q", Outcome: "Yes"}}
+	snd := &fakeSender{}
+	h := New(enr, nil, snd, "1", dd(), cd(), quiet())
+
+	// Whale scales into the same market+side via two SEPARATE txs (distinct fills,
+	// so the exact-dedup lets both through) — the cooldown must collapse to one.
+	t1 := bus.TradeDetected{Wallet: "0xWHALE", TokenID: "789", Side: "buy", Price: "0.5", Size: "5", TxHash: "0xaaa", LogIndex: 1}
+	t2 := bus.TradeDetected{Wallet: "0xWHALE", TokenID: "789", Side: "buy", Price: "0.5", Size: "5", TxHash: "0xbbb", LogIndex: 2}
+	h.Handle(context.Background(), t1)
+	h.Handle(context.Background(), t2)
+	if snd.calls != 1 {
+		t.Fatalf("send calls = %d, want 1 (scaling-in collapsed by cooldown)", snd.calls)
+	}
+
+	// The opposite side (an exit) is NOT cooled down — different side key.
+	sell := bus.TradeDetected{Wallet: "0xWHALE", TokenID: "789", Side: "sell", Price: "0.6", Size: "5", TxHash: "0xccc", LogIndex: 3}
+	h.Handle(context.Background(), sell)
+	if snd.calls != 2 {
+		t.Fatalf("send calls = %d, want 2 (opposite side must still alert)", snd.calls)
+	}
+}
+
+func TestHandle_NilCooldownDisablesCollapsing(t *testing.T) {
+	enr := fakeEnricher{resp: &lobsterrollv1.EnrichTokenResponse{MarketQuestion: "Q", Outcome: "Yes"}}
+	snd := &fakeSender{}
+	h := New(enr, nil, snd, "1", dd(), nil, quiet()) // cooldown disabled
+
+	t1 := bus.TradeDetected{Wallet: "0xW", TokenID: "1", Side: "buy", Size: "5", TxHash: "0xa", LogIndex: 1}
+	t2 := bus.TradeDetected{Wallet: "0xW", TokenID: "1", Side: "buy", Size: "5", TxHash: "0xb", LogIndex: 2}
+	h.Handle(context.Background(), t1)
+	h.Handle(context.Background(), t2)
+	if snd.calls != 2 {
+		t.Fatalf("send calls = %d, want 2 (nil cooldown = no collapsing)", snd.calls)
+	}
+}
+
 func TestHandle_SendFailureNotDeduped(t *testing.T) {
 	enr := fakeEnricher{resp: &lobsterrollv1.EnrichTokenResponse{MarketQuestion: "Q", Outcome: "Yes"}}
 	snd := &fakeSender{err: errors.New("telegram down")}
-	h := New(enr, nil, snd, "1", dd(), quiet())
+	h := New(enr, nil, snd, "1", dd(), cd(), quiet())
 
 	h.Handle(context.Background(), trade) // fails to send -> must NOT be cached
 	snd.err = nil
@@ -121,7 +161,7 @@ func TestHandle_WithStats_RendersStatsLine(t *testing.T) {
 		WinRate: 0.65, ResolvedMarkets: 29, RealizedPnl: 31_000_000, PortfolioValue: 1200, Found: true,
 	}}
 	snd := &fakeSender{}
-	New(enr, st, snd, "1", dd(), quiet()).Handle(context.Background(), trade)
+	New(enr, st, snd, "1", dd(), cd(), quiet()).Handle(context.Background(), trade)
 
 	if st.calls != 1 {
 		t.Fatalf("stats lookups = %d, want 1", st.calls)
@@ -138,7 +178,7 @@ func TestHandle_StatsNotFound_OmitsLine(t *testing.T) {
 	enr := fakeEnricher{resp: &lobsterrollv1.EnrichTokenResponse{MarketQuestion: "Q", Outcome: "Yes"}}
 	st := &fakeStats{resp: &lobsterrollv1.WalletStats{Found: false}}
 	snd := &fakeSender{}
-	New(enr, st, snd, "1", dd(), quiet()).Handle(context.Background(), trade)
+	New(enr, st, snd, "1", dd(), cd(), quiet()).Handle(context.Background(), trade)
 
 	if snd.calls != 1 {
 		t.Fatalf("send calls = %d, want 1", snd.calls)
@@ -152,7 +192,7 @@ func TestHandle_StatsError_OmitsLine_StillAlerts(t *testing.T) {
 	enr := fakeEnricher{resp: &lobsterrollv1.EnrichTokenResponse{MarketQuestion: "Q", Outcome: "Yes"}}
 	st := &fakeStats{err: status.Error(codes.Unavailable, "leaderboard down")}
 	snd := &fakeSender{}
-	New(enr, st, snd, "1", dd(), quiet()).Handle(context.Background(), trade)
+	New(enr, st, snd, "1", dd(), cd(), quiet()).Handle(context.Background(), trade)
 
 	if snd.calls != 1 {
 		t.Fatalf("send calls = %d, want 1 (stats failure must not block alert)", snd.calls)
@@ -165,7 +205,7 @@ func TestHandle_StatsError_OmitsLine_StillAlerts(t *testing.T) {
 func TestHandle_EnrichmentNotFound_StillAlerts(t *testing.T) {
 	enr := fakeEnricher{err: status.Error(codes.NotFound, "nope")}
 	snd := &fakeSender{}
-	New(enr, nil, snd, "1", dd(), quiet()).Handle(context.Background(), trade)
+	New(enr, nil, snd, "1", dd(), cd(), quiet()).Handle(context.Background(), trade)
 
 	if snd.calls != 1 {
 		t.Fatalf("send calls = %d, want 1 (degrade gracefully)", snd.calls)
@@ -178,7 +218,7 @@ func TestHandle_EnrichmentNotFound_StillAlerts(t *testing.T) {
 func TestHandle_EnrichmentTransient_LookupUnavailable(t *testing.T) {
 	enr := fakeEnricher{err: status.Error(codes.Unavailable, "enrichment down")}
 	snd := &fakeSender{}
-	New(enr, nil, snd, "1", dd(), quiet()).Handle(context.Background(), trade)
+	New(enr, nil, snd, "1", dd(), cd(), quiet()).Handle(context.Background(), trade)
 
 	if snd.calls != 1 {
 		t.Fatalf("send calls = %d, want 1 (still alerts)", snd.calls)
@@ -192,7 +232,7 @@ func TestHandle_SendFailure_NoPanic(t *testing.T) {
 	enr := fakeEnricher{resp: &lobsterrollv1.EnrichTokenResponse{MarketQuestion: "Q", Outcome: "Yes"}}
 	snd := &fakeSender{err: errors.New("telegram down")}
 	// Must not panic or block; error is logged internally.
-	New(enr, nil, snd, "1", dd(), quiet()).Handle(context.Background(), trade)
+	New(enr, nil, snd, "1", dd(), cd(), quiet()).Handle(context.Background(), trade)
 	if snd.calls != 1 {
 		t.Fatalf("send attempted = %d, want 1", snd.calls)
 	}
@@ -205,7 +245,7 @@ func TestHandleConsensus_Found(t *testing.T) {
 		TokenID: "2596", Side: "buy", Wallets: []string{"a", "b", "c", "d"},
 		Count: 4, CombinedUSD: 12000, WindowSecs: 6 * 3600,
 	}
-	New(enr, nil, snd, "777", dd(), quiet()).HandleConsensus(context.Background(), sig)
+	New(enr, nil, snd, "777", dd(), cd(), quiet()).HandleConsensus(context.Background(), sig)
 
 	if snd.calls != 1 {
 		t.Fatalf("send calls = %d, want 1", snd.calls)
@@ -228,7 +268,7 @@ func TestHandleConsensus_EnrichmentNotFound_StillAlerts(t *testing.T) {
 	enr := fakeEnricher{err: status.Error(codes.NotFound, "nope")}
 	snd := &fakeSender{}
 	sig := bus.ConsensusSignal{TokenID: "2596", Side: "sell", Count: 2, CombinedUSD: 500, WindowSecs: 1800}
-	New(enr, nil, snd, "1", dd(), quiet()).HandleConsensus(context.Background(), sig)
+	New(enr, nil, snd, "1", dd(), cd(), quiet()).HandleConsensus(context.Background(), sig)
 
 	if snd.calls != 1 {
 		t.Fatalf("send calls = %d, want 1 (degrade gracefully)", snd.calls)

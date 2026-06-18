@@ -16,7 +16,8 @@ type Config struct {
 	EnrichmentAddr  string
 	LeaderboardAddr string
 	QueueGroup      string
-	AlertDedupTTL   time.Duration // suppress duplicate trade alerts for this long
+	AlertDedupTTL   time.Duration // suppress duplicate (same-fill) trade alerts for this long
+	AlertCooldown   time.Duration // collapse repeated wallet+market+side alerts; 0 = off
 }
 
 const (
@@ -25,6 +26,7 @@ const (
 	defLeaderboardAddr = "leaderboard:50051"
 	defQueueGroup      = "notifier"
 	defAlertDedupTTL   = 24 * time.Hour
+	defAlertCooldown   = 15 * time.Minute
 )
 
 // Load resolves config using getenv, applying defaults and validating.
@@ -38,6 +40,7 @@ func Load(getenv func(string) string) (Config, error) {
 		LeaderboardAddr: orDefault(getenv("LEADERBOARD_GRPC_ADDR"), defLeaderboardAddr),
 		QueueGroup:      orDefault(getenv("NOTIFIER_QUEUE_GROUP"), defQueueGroup),
 		AlertDedupTTL:   defAlertDedupTTL,
+		AlertCooldown:   defAlertCooldown,
 	}
 	if v := getenv("ALERT_DEDUP_TTL"); v != "" {
 		d, err := time.ParseDuration(v)
@@ -45,6 +48,13 @@ func Load(getenv func(string) string) (Config, error) {
 			return Config{}, fmt.Errorf("ALERT_DEDUP_TTL: %w", err)
 		}
 		cfg.AlertDedupTTL = d
+	}
+	if v := getenv("ALERT_COOLDOWN"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("ALERT_COOLDOWN: %w", err)
+		}
+		cfg.AlertCooldown = d
 	}
 	if cfg.TelegramToken == "" {
 		return Config{}, fmt.Errorf("TELEGRAM_BOT_TOKEN is required")
@@ -54,6 +64,9 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	if cfg.AlertDedupTTL <= 0 {
 		return Config{}, fmt.Errorf("ALERT_DEDUP_TTL must be > 0, got %s", cfg.AlertDedupTTL)
+	}
+	if cfg.AlertCooldown < 0 {
+		return Config{}, fmt.Errorf("ALERT_COOLDOWN must be >= 0, got %s", cfg.AlertCooldown)
 	}
 	return cfg, nil
 }

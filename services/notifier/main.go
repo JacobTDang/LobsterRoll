@@ -63,7 +63,11 @@ func run(ctx context.Context, log *slog.Logger) error {
 	}
 	defer sub.Close()
 
-	alerts := handler.New(enrich, leaderboard, tg, cfg.TelegramChatID, dedup.New(cfg.AlertDedupTTL), log)
+	var cooldown *dedup.TTLSet
+	if cfg.AlertCooldown > 0 {
+		cooldown = dedup.New(cfg.AlertCooldown)
+	}
+	alerts := handler.New(enrich, leaderboard, tg, cfg.TelegramChatID, dedup.New(cfg.AlertDedupTTL), cooldown, log)
 	mgr := approval.New(tg, pub, cfg.TelegramChatID, log)
 
 	// One-way alerts on every detected trade.

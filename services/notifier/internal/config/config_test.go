@@ -16,7 +16,7 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 	if cfg.NATSURL != defNATSURL || cfg.EnrichmentAddr != defEnrichmentAddr ||
 		cfg.LeaderboardAddr != defLeaderboardAddr || cfg.QueueGroup != defQueueGroup ||
-		cfg.AlertDedupTTL != defAlertDedupTTL {
+		cfg.AlertDedupTTL != defAlertDedupTTL || cfg.AlertCooldown != defAlertCooldown {
 		t.Fatalf("defaults not applied: %+v", cfg)
 	}
 }
@@ -31,6 +31,7 @@ func TestLoad_Overrides(t *testing.T) {
 		"LEADERBOARD_GRPC_ADDR": "localhost:50051",
 		"NOTIFIER_QUEUE_GROUP":  "n2",
 		"ALERT_DEDUP_TTL":       "1h",
+		"ALERT_COOLDOWN":        "30m",
 	}))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -39,6 +40,7 @@ func TestLoad_Overrides(t *testing.T) {
 		TelegramToken: "tok", TelegramChatID: "42", TelegramBaseURL: "http://localhost:8099",
 		NATSURL: "nats://localhost:4222", EnrichmentAddr: "localhost:50052",
 		LeaderboardAddr: "localhost:50051", QueueGroup: "n2", AlertDedupTTL: time.Hour,
+		AlertCooldown: 30 * time.Minute,
 	}
 	if cfg != want {
 		t.Fatalf("got %+v, want %+v", cfg, want)
