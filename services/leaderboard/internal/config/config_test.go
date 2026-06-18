@@ -19,19 +19,18 @@ func TestLoad_Defaults(t *testing.T) {
 	want := Config{
 		Metric:   client.MetricPNL,
 		Window:   "30d",
-		TopN:     25,
-		Interval: 6 * time.Hour,
+		TopN:     30,
 		APIBase:  client.DefaultBaseURL,
 		DBPath:   "watchset.db",
 		GRPCAddr: ":50051",
 
 		DataAPIBase:        "https://data-api.polymarket.com",
-		StatsMinResolved:   20,
+		StatsMinResolved:   3,
 		CandidateTopK:      50,
-		StatsMaxCandidates: 60,
+		StatsMaxCandidates: 80,
 		StatsMaxActivity:   3000,
 		StatsConcurrency:   8,
-		StatsRefresh:       12 * time.Hour,
+		StatsRefresh:       24 * time.Hour,
 	}
 	if cfg != want {
 		t.Fatalf("defaults = %+v, want %+v", cfg, want)
@@ -43,7 +42,6 @@ func TestLoad_Overrides(t *testing.T) {
 		"LEADERBOARD_METRIC":        "volume",
 		"LEADERBOARD_WINDOW":        "7d",
 		"LEADERBOARD_TOP_N":         "10",
-		"LEADERBOARD_SYNC_INTERVAL": "90m",
 		"LEADERBOARD_API_BASE":      "http://localhost:9999",
 		"LEADERBOARD_DB_PATH":       "/data/w.db",
 		"LEADERBOARD_GRPC_ADDR":     ":7000",
@@ -62,7 +60,6 @@ func TestLoad_Overrides(t *testing.T) {
 		Metric:   client.MetricVolume,
 		Window:   "7d",
 		TopN:     10,
-		Interval: 90 * time.Minute,
 		APIBase:  "http://localhost:9999",
 		DBPath:   "/data/w.db",
 		GRPCAddr: ":7000",
@@ -89,7 +86,6 @@ func TestLoad_Invalid(t *testing.T) {
 		{"bad window", map[string]string{"LEADERBOARD_WINDOW": "weekly"}},
 		{"non-numeric top_n", map[string]string{"LEADERBOARD_TOP_N": "lots"}},
 		{"zero top_n", map[string]string{"LEADERBOARD_TOP_N": "0"}},
-		{"bad interval", map[string]string{"LEADERBOARD_SYNC_INTERVAL": "soon"}},
 		{"non-numeric min resolved", map[string]string{"STATS_MIN_RESOLVED": "many"}},
 		{"zero candidate topk", map[string]string{"CANDIDATE_TOPK": "0"}},
 		{"zero max candidates", map[string]string{"STATS_MAX_CANDIDATES": "0"}},

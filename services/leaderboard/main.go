@@ -33,9 +33,10 @@ func run(ctx context.Context, log *slog.Logger) error {
 	}
 	log.Info("config loaded",
 		"metric", cfg.Metric, "window", cfg.Window, "topN", cfg.TopN,
-		"interval", cfg.Interval, "grpc", cfg.GRPCAddr, "db", cfg.DBPath,
+		"grpc", cfg.GRPCAddr, "db", cfg.DBPath,
 		"dataAPI", cfg.DataAPIBase, "statsRefresh", cfg.StatsRefresh,
-		"minResolved", cfg.StatsMinResolved, "candidateTopK", cfg.CandidateTopK)
+		"minResolved", cfg.StatsMinResolved, "candidateTopK", cfg.CandidateTopK,
+		"maxCandidates", cfg.StatsMaxCandidates)
 
 	st, err := store.Open(ctx, cfg.DBPath)
 	if err != nil {

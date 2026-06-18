@@ -15,7 +15,6 @@ type Config struct {
 	Metric   client.Metric
 	Window   client.Window
 	TopN     int
-	Interval time.Duration
 	APIBase  string
 	DBPath   string
 	GRPCAddr string
@@ -35,19 +34,18 @@ type Config struct {
 const (
 	defWindow   = "30d"
 	defMetric   = "pnl"
-	defTopN     = 25
-	defInterval = 6 * time.Hour
+	defTopN     = 30 // track the top 30 performing wallets
 	defAPIBase  = client.DefaultBaseURL
 	defDBPath   = "watchset.db"
 	defGRPCAddr = ":50051"
 
 	defDataAPIBase        = "https://data-api.polymarket.com"
-	defStatsMinResolved   = 20
-	defCandidateTopK      = 50
-	defStatsMaxCandidates = 60
+	defStatsMinResolved   = 3  // light gate: a real (if modest) resolved-market record
+	defCandidateTopK      = 50 // top-K per window into the pool
+	defStatsMaxCandidates = 80 // crawl up to this many so >=30 clear the gate
 	defStatsMaxActivity   = 3000
 	defStatsConcurrency   = 8
-	defStatsRefresh       = 12 * time.Hour
+	defStatsRefresh       = 24 * time.Hour // refresh the watchset once a day
 )
 
 // Load resolves config using getenv (e.g. os.Getenv), applying defaults and
@@ -57,7 +55,6 @@ func Load(getenv func(string) string) (Config, error) {
 		Metric:   client.Metric(orDefault(getenv("LEADERBOARD_METRIC"), defMetric)),
 		Window:   client.Window(orDefault(getenv("LEADERBOARD_WINDOW"), defWindow)),
 		TopN:     defTopN,
-		Interval: defInterval,
 		APIBase:  orDefault(getenv("LEADERBOARD_API_BASE"), defAPIBase),
 		DBPath:   orDefault(getenv("LEADERBOARD_DB_PATH"), defDBPath),
 		GRPCAddr: orDefault(getenv("LEADERBOARD_GRPC_ADDR"), defGRPCAddr),
@@ -77,13 +74,6 @@ func Load(getenv func(string) string) (Config, error) {
 			return Config{}, fmt.Errorf("LEADERBOARD_TOP_N: %w", err)
 		}
 		cfg.TopN = n
-	}
-	if v := getenv("LEADERBOARD_SYNC_INTERVAL"); v != "" {
-		d, err := time.ParseDuration(v)
-		if err != nil {
-			return Config{}, fmt.Errorf("LEADERBOARD_SYNC_INTERVAL: %w", err)
-		}
-		cfg.Interval = d
 	}
 
 	for _, p := range []struct {
@@ -120,9 +110,6 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	if cfg.TopN <= 0 {
 		return Config{}, fmt.Errorf("LEADERBOARD_TOP_N must be > 0, got %d", cfg.TopN)
-	}
-	if cfg.Interval <= 0 {
-		return Config{}, fmt.Errorf("LEADERBOARD_SYNC_INTERVAL must be > 0, got %s", cfg.Interval)
 	}
 	if cfg.StatsMinResolved < 0 {
 		return Config{}, fmt.Errorf("STATS_MIN_RESOLVED must be >= 0, got %d", cfg.StatsMinResolved)
