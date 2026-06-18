@@ -80,6 +80,15 @@ func TestFormatAlert_SellExit(t *testing.T) {
 	}
 }
 
+func TestFormatAlert_ShowsGameEndDate(t *testing.T) {
+	td := bus.TradeDetected{Wallet: "0x037c0f46600702e77ccb738721a78d6418d3a458", Side: "buy", Price: "0.5", Size: "10"}
+	end := time.Date(2026, 6, 27, 21, 0, 0, 0, time.UTC).Unix()
+	got := FormatAlert(td, Market{Question: "Q", Outcome: "Yes", Found: true, EndDateUnix: end}, WhaleStats{})
+	if !strings.Contains(got, "🏁 game 2026-06-27 21:00 UTC") {
+		t.Errorf("missing game end date line: %q", got)
+	}
+}
+
 func TestFormatAlert_StatsOmittedWhenNotOK(t *testing.T) {
 	td := bus.TradeDetected{
 		Wallet: "0xa6d24a207011c9a5d54fa3a04f3e87365d2e12f4",

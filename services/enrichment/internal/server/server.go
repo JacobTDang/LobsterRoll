@@ -101,5 +101,6 @@ func toResponse(e client.Enrichment) *lobsterrollv1.EnrichTokenResponse {
 		Outcome:        e.Outcome,
 		MarketSlug:     e.MarketSlug,
 		ConditionId:    e.ConditionID,
+		EndDateUnix:    e.EndDateUnix,
 	}
 }

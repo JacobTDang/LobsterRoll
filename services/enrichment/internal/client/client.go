@@ -31,6 +31,7 @@ type Enrichment struct {
 	Outcome        string
 	MarketSlug     string
 	ConditionID    string
+	EndDateUnix    int64 // market/game end time (unix secs); 0 if unknown
 }
 
 type gammaMarket struct {
@@ -39,6 +40,20 @@ type gammaMarket struct {
 	ConditionID  string `json:"conditionId"`
 	Outcomes     string `json:"outcomes"`     // JSON-encoded array string
 	ClobTokenIDs string `json:"clobTokenIds"` // JSON-encoded array string
+	EndDate      string `json:"endDate"`      // ISO-8601, e.g. 2026-06-27T21:00:00Z
+}
+
+// parseEndDate converts a gamma ISO-8601 endDate to unix seconds; 0 if absent
+// or unparseable (treated as "unknown" — never used to filter).
+func parseEndDate(s string) int64 {
+	if s == "" {
+		return 0
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return 0
+	}
+	return t.Unix()
 }
 
 // Resolve parses a gamma markets response and returns the enrichment for
@@ -70,6 +85,7 @@ func Resolve(data []byte, tokenID string) (Enrichment, bool, error) {
 			Outcome:        outcome,
 			MarketSlug:     m.Slug,
 			ConditionID:    m.ConditionID,
+			EndDateUnix:    parseEndDate(m.EndDate),
 		}, true, nil
 	}
 	return Enrichment{}, false, nil

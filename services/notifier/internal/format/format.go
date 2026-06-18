@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"time"
 
 	"github.com/JacobTDang/LobsterRoll/pkg/bus"
 )
@@ -18,6 +19,8 @@ type Market struct {
 	// LookupFailed distinguishes a transient enrichment failure (couldn't look
 	// up) from a genuinely unknown token, so the alert isn't mislabeled.
 	LookupFailed bool
+	// EndDateUnix is when the market/game ends (unix secs); 0 if unknown.
+	EndDateUnix int64
 }
 
 // WhaleStats is the resolved track record for a whale (from the leaderboard
@@ -42,6 +45,9 @@ func FormatAlert(td bus.TradeDetected, m Market, ws WhaleStats) string {
 
 	lines := []string{fmt.Sprintf("%s %s (%s)  whale %s", emoji, action, side, shortenHex(td.Wallet))}
 	lines = append(lines, marketLine(td, m))
+	if m.Found && m.EndDateUnix > 0 {
+		lines = append(lines, "🏁 game "+time.Unix(m.EndDateUnix, 0).UTC().Format("2006-01-02 15:04 UTC"))
+	}
 	if ws.OK {
 		lines = append(lines, fmt.Sprintf("👤 %d%% win (%d mkts) · realized %s · %s portfolio",
 			int(ws.WinRate*100+0.5), ws.ResolvedMarkets, signedMoney(ws.RealizedPnlUSD), abbrevMoney(ws.PortfolioUSD)))

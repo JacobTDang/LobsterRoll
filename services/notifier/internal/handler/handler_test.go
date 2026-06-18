@@ -128,6 +128,33 @@ func TestHandle_CooldownCollapsesScalingIn(t *testing.T) {
 	}
 }
 
+func TestHandle_SkipsPastGames(t *testing.T) {
+	now := time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
+	past := now.Add(-2 * time.Hour).Unix()
+	future := now.Add(2 * time.Hour).Unix()
+
+	mk := func(end int64) *fakeSender {
+		enr := fakeEnricher{resp: &lobsterrollv1.EnrichTokenResponse{
+			MarketQuestion: "Q", Outcome: "Yes", EndDateUnix: end,
+		}}
+		snd := &fakeSender{}
+		h := New(enr, nil, snd, "1", dd(), cd(), quiet())
+		h.now = func() time.Time { return now }
+		h.Handle(context.Background(), trade)
+		return snd
+	}
+
+	if c := mk(past).calls; c != 0 {
+		t.Fatalf("past game: send calls = %d, want 0 (already over)", c)
+	}
+	if c := mk(future).calls; c != 1 {
+		t.Fatalf("future game: send calls = %d, want 1", c)
+	}
+	if c := mk(0).calls; c != 1 {
+		t.Fatalf("unknown end date: send calls = %d, want 1 (don't filter)", c)
+	}
+}
+
 func TestHandle_NilCooldownDisablesCollapsing(t *testing.T) {
 	enr := fakeEnricher{resp: &lobsterrollv1.EnrichTokenResponse{MarketQuestion: "Q", Outcome: "Yes"}}
 	snd := &fakeSender{}

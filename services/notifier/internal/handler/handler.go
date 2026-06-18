@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -44,6 +45,7 @@ type Handler struct {
 	chatID   string
 	dedup    *dedup.TTLSet // exact-trade dedup: suppresses re-emits of the SAME fill
 	cooldown *dedup.TTLSet // burst cooldown: collapses repeated wallet+market+side trades
+	now      func() time.Time
 	log      *slog.Logger
 }
 
@@ -52,7 +54,7 @@ type Handler struct {
 // re-emitted trades; cooldown (may be nil) collapses a whale's repeated trades
 // on the same market+side into one alert per cooldown window.
 func New(enrich Enricher, stats WhaleStatsLookuper, sender Sender, chatID string, dd, cooldown *dedup.TTLSet, log *slog.Logger) *Handler {
-	return &Handler{enrich: enrich, stats: stats, sender: sender, chatID: chatID, dedup: dd, cooldown: cooldown, log: log}
+	return &Handler{enrich: enrich, stats: stats, sender: sender, chatID: chatID, dedup: dd, cooldown: cooldown, now: time.Now, log: log}
 }
 
 // tradeKey uniquely identifies a detected trade. The on-chain (tx, logIndex)
@@ -87,6 +89,14 @@ func (h *Handler) Handle(ctx context.Context, td bus.TradeDetected) {
 
 	market := h.resolveMarket(ctx, td.TokenID)
 
+	// Drop trades on games that are already over — they're not actionable. Only
+	// filter when we actually know the end time (Found + EndDateUnix > 0); an
+	// unknown/unresolved market still alerts.
+	if market.Found && market.EndDateUnix > 0 && h.now().Unix() > market.EndDateUnix {
+		h.log.Info("skipping alert; game already ended", "wallet", td.Wallet, "token", td.TokenID, "end", market.EndDateUnix)
+		return
+	}
+
 	// Best-effort whale track record: a lookup failure or unknown wallet just
 	// omits the stats line — it must never block or fail the alert.
 	ws := h.lookupStats(ctx, td.Wallet)
@@ -116,7 +126,7 @@ func (h *Handler) resolveMarket(ctx context.Context, tokenID string) format.Mark
 	resp, err := h.enrich.EnrichToken(ctx, &lobsterrollv1.EnrichTokenRequest{TokenId: tokenID})
 	switch {
 	case err == nil:
-		return format.Market{Question: resp.GetMarketQuestion(), Outcome: resp.GetOutcome(), Slug: resp.GetMarketSlug(), Found: true}
+		return format.Market{Question: resp.GetMarketQuestion(), Outcome: resp.GetOutcome(), Slug: resp.GetMarketSlug(), Found: true, EndDateUnix: resp.GetEndDateUnix()}
 	case status.Code(err) == codes.NotFound:
 		return format.Market{}
 	default:

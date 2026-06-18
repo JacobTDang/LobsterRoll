@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 const (
@@ -51,6 +52,31 @@ func TestResolve_Golden(t *testing.T) {
 	}
 	if e2.Outcome != "Over" {
 		t.Errorf("outcome = %q, want Over", e2.Outcome)
+	}
+}
+
+func TestResolve_EndDate(t *testing.T) {
+	body := []byte(`[{"question":"Q","slug":"s","conditionId":"0xabc",` +
+		`"outcomes":"[\"Yes\",\"No\"]","clobTokenIds":"[\"111\",\"222\"]","endDate":"2026-06-27T21:00:00Z"}]`)
+	e, ok, err := Resolve(body, "111")
+	if err != nil || !ok {
+		t.Fatalf("Resolve: ok=%v err=%v", ok, err)
+	}
+	if want := time.Date(2026, 6, 27, 21, 0, 0, 0, time.UTC).Unix(); e.EndDateUnix != want {
+		t.Errorf("EndDateUnix = %d, want %d", e.EndDateUnix, want)
+	}
+}
+
+func TestResolve_EndDateAbsentOrBad(t *testing.T) {
+	for _, ed := range []string{"", "not-a-date"} {
+		body := []byte(`[{"question":"Q","outcomes":"[\"Yes\"]","clobTokenIds":"[\"111\"]","endDate":"` + ed + `"}]`)
+		e, ok, err := Resolve(body, "111")
+		if err != nil || !ok {
+			t.Fatalf("Resolve(%q): ok=%v err=%v", ed, ok, err)
+		}
+		if e.EndDateUnix != 0 {
+			t.Errorf("EndDateUnix = %d, want 0 for endDate=%q", e.EndDateUnix, ed)
+		}
 	}
 }
 

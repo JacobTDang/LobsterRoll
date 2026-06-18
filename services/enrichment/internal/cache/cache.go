@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite" // CGO-free driver, registered as "sqlite".
@@ -37,15 +38,23 @@ func Open(ctx context.Context, path string) (*Cache, error) {
 	}
 	if _, err := db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS enrichment (
-			token_id     TEXT PRIMARY KEY,
-			question     TEXT NOT NULL,
-			outcome      TEXT NOT NULL,
-			slug         TEXT NOT NULL,
-			condition_id TEXT NOT NULL,
-			cached_at    INTEGER NOT NULL
+			token_id      TEXT PRIMARY KEY,
+			question      TEXT NOT NULL,
+			outcome       TEXT NOT NULL,
+			slug          TEXT NOT NULL,
+			condition_id  TEXT NOT NULL,
+			end_date_unix INTEGER NOT NULL DEFAULT 0,
+			cached_at     INTEGER NOT NULL
 		)`); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("create schema: %w", err)
+	}
+	// Migrate older caches that predate end_date_unix; ignore "duplicate column".
+	if _, err := db.ExecContext(ctx,
+		`ALTER TABLE enrichment ADD COLUMN end_date_unix INTEGER NOT NULL DEFAULT 0`); err != nil &&
+		!strings.Contains(err.Error(), "duplicate column") {
+		db.Close()
+		return nil, fmt.Errorf("migrate end_date_unix: %w", err)
 	}
 	return &Cache{db: db}, nil
 }
@@ -57,8 +66,8 @@ func (c *Cache) Close() error { return c.db.Close() }
 func (c *Cache) Get(ctx context.Context, tokenID string) (client.Enrichment, bool, error) {
 	var e client.Enrichment
 	err := c.db.QueryRowContext(ctx,
-		`SELECT question, outcome, slug, condition_id FROM enrichment WHERE token_id = ?`, tokenID).
-		Scan(&e.MarketQuestion, &e.Outcome, &e.MarketSlug, &e.ConditionID)
+		`SELECT question, outcome, slug, condition_id, end_date_unix FROM enrichment WHERE token_id = ?`, tokenID).
+		Scan(&e.MarketQuestion, &e.Outcome, &e.MarketSlug, &e.ConditionID, &e.EndDateUnix)
 	if errors.Is(err, sql.ErrNoRows) {
 		return client.Enrichment{}, false, nil
 	}
@@ -71,12 +80,13 @@ func (c *Cache) Get(ctx context.Context, tokenID string) (client.Enrichment, boo
 // Put stores (or replaces) the enrichment for tokenID.
 func (c *Cache) Put(ctx context.Context, tokenID string, e client.Enrichment) error {
 	_, err := c.db.ExecContext(ctx,
-		`INSERT INTO enrichment (token_id, question, outcome, slug, condition_id, cached_at)
-		 VALUES (?, ?, ?, ?, ?, ?)
+		`INSERT INTO enrichment (token_id, question, outcome, slug, condition_id, end_date_unix, cached_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(token_id) DO UPDATE SET
 		   question=excluded.question, outcome=excluded.outcome,
-		   slug=excluded.slug, condition_id=excluded.condition_id, cached_at=excluded.cached_at`,
-		tokenID, e.MarketQuestion, e.Outcome, e.MarketSlug, e.ConditionID, time.Now().Unix())
+		   slug=excluded.slug, condition_id=excluded.condition_id,
+		   end_date_unix=excluded.end_date_unix, cached_at=excluded.cached_at`,
+		tokenID, e.MarketQuestion, e.Outcome, e.MarketSlug, e.ConditionID, e.EndDateUnix, time.Now().Unix())
 	if err != nil {
 		return fmt.Errorf("cache put %s: %w", tokenID, err)
 	}

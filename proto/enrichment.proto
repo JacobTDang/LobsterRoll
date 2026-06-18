@@ -18,4 +18,7 @@ message EnrichTokenResponse {
   string outcome = 2;
   string market_slug = 3;
   string condition_id = 4;
+  // Unix seconds when the market/game ends (from gamma endDate); 0 if unknown.
+  // Immutable per market, so safe to cache. Used to drop already-past games.
+  int64 end_date_unix = 5;
 }
