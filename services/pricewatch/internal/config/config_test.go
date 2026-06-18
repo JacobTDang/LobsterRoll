@@ -15,7 +15,8 @@ func TestLoad_Defaults(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	if cfg.NATSURL != defNATSURL || cfg.DBPath != defDBPath || cfg.QueueGroup != defQueueGroup ||
-		cfg.PollInterval != defPollInterval || cfg.TokenTTL != defTokenTTL || cfg.Retention != defRetention {
+		cfg.PollInterval != defPollInterval || cfg.TokenTTL != defTokenTTL || cfg.Retention != defRetention ||
+		cfg.EnrichmentAddr != defEnrichmentAddr || cfg.CloseBuffer != defCloseBuffer || cfg.SettleInterval != defSettleInterval {
 		t.Fatalf("defaults not applied: %+v", cfg)
 	}
 }
@@ -47,7 +48,7 @@ func TestLoad_Overrides(t *testing.T) {
 }
 
 func TestLoad_Invalid(t *testing.T) {
-	for _, k := range []string{"PRICEWATCH_POLL_INTERVAL", "PRICEWATCH_TOKEN_TTL", "PRICEWATCH_RETENTION"} {
+	for _, k := range []string{"PRICEWATCH_POLL_INTERVAL", "PRICEWATCH_TOKEN_TTL", "PRICEWATCH_RETENTION", "PRICEWATCH_CLOSE_BUFFER", "PRICEWATCH_SETTLE_INTERVAL"} {
 		if _, err := Load(env(map[string]string{k: "0s"})); err == nil {
 			t.Errorf("%s=0s should be rejected", k)
 		}

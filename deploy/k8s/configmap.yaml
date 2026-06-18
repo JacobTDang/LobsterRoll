@@ -35,6 +35,8 @@ data:
   PRICEWATCH_POLL_INTERVAL: "2m"  # snapshot every tracked token this often
   PRICEWATCH_TOKEN_TTL: "168h"    # stop polling a token untraded this long (re-added on next trade)
   PRICEWATCH_RETENTION: "720h"    # prune price snapshots older than this (30d)
+  PRICEWATCH_CLOSE_BUFFER: "4h"   # CLV close = snapshot this long before market end
+  PRICEWATCH_SETTLE_INTERVAL: "1h" # how often to compute CLV for resolved trades
 
   # ---- consensus ----
   CONSENSUS_MIN_WALLETS: "3"
