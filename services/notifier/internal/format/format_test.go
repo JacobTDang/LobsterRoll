@@ -37,8 +37,7 @@ func TestFormatAlert_BuyEnter(t *testing.T) {
 		"Ghana vs. Panama: O/U 2.5 → Over\n" +
 		"💵 $5.47  ·  5.76 @ $0.95\n" +
 		"🕒 2026-06-17 12:05 UTC\n" +
-		"📊 https://polymarket.com/event/fifwc-gha-pan-total-2pt5\n" +
-		"🔗 https://polygonscan.com/tx/0x7ccd161ea4de1234567890abcdef1234567890abcdef1234567890abcdef1234"
+		"📊 https://polymarket.com/event/fifwc-gha-pan-total-2pt5"
 	if got != want {
 		t.Fatalf("\n got: %q\nwant: %q", got, want)
 	}
@@ -59,8 +58,7 @@ func TestFormatAlert_WithWhaleStats(t *testing.T) {
 		"👤 65% win (29 mkts) · realized +$31.0M · $1.2k portfolio\n" +
 		"💵 $5.47  ·  5.76 @ $0.95\n" +
 		"🕒 2026-06-17 12:05 UTC\n" +
-		"📊 https://polymarket.com/event/fifwc-gha-pan-total-2pt5\n" +
-		"🔗 https://polygonscan.com/tx/0x7ccd161ea4de1234567890abcdef1234567890abcdef1234567890abcdef1234"
+		"📊 https://polymarket.com/event/fifwc-gha-pan-total-2pt5"
 	if got != want {
 		t.Fatalf("\n got: %q\nwant: %q", got, want)
 	}
@@ -76,8 +74,7 @@ func TestFormatAlert_SellExit(t *testing.T) {
 	got := FormatAlert(td, Market{Question: "Will X happen?", Outcome: "Yes", Found: true}, WhaleStats{})
 	want := "🔴 EXIT (SELL)  whale 0xa6d2…12f4\n" +
 		"Will X happen? → Yes\n" +
-		"💵 $2.12  ·  5.19 @ $0.408\n" +
-		"🔗 https://polygonscan.com/tx/0xdeadbeefcafebabedeadbeefcafebabedeadbeefcafebabedeadbeefcafebabe"
+		"💵 $2.12  ·  5.19 @ $0.408"
 	if got != want {
 		t.Fatalf("\n got: %q\nwant: %q", got, want)
 	}
@@ -120,8 +117,7 @@ func TestFormatAlert_UnknownMarket(t *testing.T) {
 	got := FormatAlert(td, Market{Found: false}, WhaleStats{})
 	want := "🟢 ENTER (BUY)  whale 0x037c…a458\n" +
 		"Unknown market (token 2596…2787)\n" +
-		"💵 $5.00  ·  10 @ $0.5\n" +
-		"🔗 https://polygonscan.com/tx/0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+		"💵 $5.00  ·  10 @ $0.5"
 	if got != want {
 		t.Fatalf("\n got: %q\nwant: %q", got, want)
 	}

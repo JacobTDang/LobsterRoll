@@ -45,14 +45,17 @@ type StatsStorer interface {
 
 // StatsConfig bounds the stats crawl and tunes selection.
 type StatsConfig struct {
-	Metric        client.Metric // metric used to size candidate amounts (e.g. pnl)
-	CandidateTopK int           // top-K per window pulled into the candidate pool
-	MaxCandidates int           // cap on candidates crawled per refresh
-	MaxActivity   int           // cap on activity rows fetched per wallet
-	MinResolved   int           // selection: exclude wallets below this resolved count
-	TopN          int           // selection: final watchset size
-	Interval      time.Duration // how often to rebuild
-	Concurrency   int           // max concurrent wallet crawls (<1 = serial)
+	Metric          client.Metric // metric used to size candidate amounts (e.g. pnl)
+	CandidateTopK   int           // top-K per window pulled into the candidate pool
+	MaxCandidates   int           // cap on candidates crawled per refresh
+	MaxActivity     int           // cap on activity rows fetched per wallet
+	MinResolved     int           // selection gate: min resolved markets
+	MinWinRate      float64       // selection gate: min win rate (0..1)
+	MinPortfolioUSD float64       // selection gate: min portfolio value
+	MinRealizedPnL  float64       // selection gate: min realized PnL
+	TopN            int           // selection: max watchset size
+	Interval        time.Duration // how often to rebuild
+	Concurrency     int           // max concurrent wallet crawls (<1 = serial)
 }
 
 // errAllWindowsFailed is returned when every candidate-window fetch failed, so
@@ -203,6 +206,7 @@ func (s *StatsSyncer) refresh(ctx context.Context) error {
 				WinRate:         st.WinRate,
 				ResolvedMarkets: st.ResolvedMarkets,
 				RealizedPnL:     st.RealizedPnL,
+				PortfolioUSD:    value,
 			}
 			mu.Unlock()
 			return nil
@@ -212,7 +216,12 @@ func (s *StatsSyncer) refresh(ctx context.Context) error {
 		return err
 	}
 
-	watchset := selection.Select(cands, statsByWallet, s.cfg.MinResolved, s.cfg.TopN)
+	watchset := selection.Select(cands, statsByWallet, selection.Criteria{
+		MinResolved:     s.cfg.MinResolved,
+		MinWinRate:      s.cfg.MinWinRate,
+		MinPortfolioUSD: s.cfg.MinPortfolioUSD,
+		MinRealizedPnL:  s.cfg.MinRealizedPnL,
+	}, s.cfg.TopN)
 	// Empty-replace guard (defense-in-depth): never wipe the watchset from an
 	// empty selection (e.g. all crawls failed, or none cleared min-resolved).
 	// Skip replace/broadcast and do not advance last-sync so staleness surfaces.

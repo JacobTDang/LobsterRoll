@@ -25,9 +25,12 @@ func TestLoad_Defaults(t *testing.T) {
 		GRPCAddr: ":50051",
 
 		DataAPIBase:        "https://data-api.polymarket.com",
-		StatsMinResolved:   3,
+		StatsMinResolved:   20,
+		StatsMinWinRate:    0.90,
+		StatsMinPortfolio:  100_000,
+		StatsMinRealized:   0,
 		CandidateTopK:      50,
-		StatsMaxCandidates: 80,
+		StatsMaxCandidates: 100,
 		StatsMaxActivity:   3000,
 		StatsConcurrency:   8,
 		StatsRefresh:       24 * time.Hour,
@@ -47,6 +50,9 @@ func TestLoad_Overrides(t *testing.T) {
 		"LEADERBOARD_GRPC_ADDR":     ":7000",
 		"LEADERBOARD_DATA_API_BASE": "http://localhost:8888",
 		"STATS_MIN_RESOLVED":        "5",
+		"STATS_MIN_WIN_RATE":        "0.8",
+		"STATS_MIN_PORTFOLIO_USD":   "50000",
+		"STATS_MIN_REALIZED_PNL":    "25000",
 		"CANDIDATE_TOPK":            "30",
 		"STATS_MAX_CANDIDATES":      "40",
 		"STATS_MAX_ACTIVITY_ROWS":   "1000",
@@ -66,6 +72,9 @@ func TestLoad_Overrides(t *testing.T) {
 
 		DataAPIBase:        "http://localhost:8888",
 		StatsMinResolved:   5,
+		StatsMinWinRate:    0.8,
+		StatsMinPortfolio:  50000,
+		StatsMinRealized:   25000,
 		CandidateTopK:      30,
 		StatsMaxCandidates: 40,
 		StatsMaxActivity:   1000,
@@ -91,6 +100,8 @@ func TestLoad_Invalid(t *testing.T) {
 		{"zero max candidates", map[string]string{"STATS_MAX_CANDIDATES": "0"}},
 		{"zero max activity", map[string]string{"STATS_MAX_ACTIVITY_ROWS": "0"}},
 		{"zero concurrency", map[string]string{"STATS_CONCURRENCY": "0"}},
+		{"bad win rate", map[string]string{"STATS_MIN_WIN_RATE": "1.5"}},
+		{"non-numeric win rate", map[string]string{"STATS_MIN_WIN_RATE": "high"}},
 		{"bad stats refresh", map[string]string{"STATS_REFRESH_INTERVAL": "soon"}},
 	}
 	for _, tt := range tests {

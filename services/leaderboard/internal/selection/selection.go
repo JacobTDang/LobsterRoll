@@ -14,12 +14,30 @@ type Candidate struct {
 }
 
 // Stats are the per-wallet consistency metrics needed to score a candidate.
-// (Mirrors stats.Stats but kept local so selection stays a pure, dependency-
-// free ranking package.)
+// (Mirrors stats.Stats + portfolio, kept local so selection stays a pure,
+// dependency-free ranking package.)
 type Stats struct {
 	WinRate         float64
 	ResolvedMarkets int
 	RealizedPnL     float64
+	PortfolioUSD    float64
+}
+
+// Criteria are the hard quality gates a wallet must clear to be tracked. A
+// candidate is excluded unless it meets ALL of them.
+type Criteria struct {
+	MinResolved     int     // enough resolved markets for win rate to be meaningful
+	MinWinRate      float64 // 0..1
+	MinPortfolioUSD float64 // current portfolio value
+	MinRealizedPnL  float64 // proven net profit (cash actually won)
+}
+
+// meets reports whether s clears every gate in c.
+func (c Criteria) meets(s Stats) bool {
+	return s.ResolvedMarkets >= c.MinResolved &&
+		s.WinRate >= c.MinWinRate &&
+		s.PortfolioUSD >= c.MinPortfolioUSD &&
+		s.RealizedPnL >= c.MinRealizedPnL
 }
 
 // Score is winRate * log(1 + max(0, realizedPnL)). Negative realized PnL is
@@ -33,11 +51,11 @@ func Score(s Stats) float64 {
 	return s.WinRate * math.Log1p(pnl)
 }
 
-// Select ranks candidates by Score descending and returns up to topN wallets.
-// Candidates whose stats are missing, or whose ResolvedMarkets < minResolved,
-// are excluded (filters out one-hit-wonders with too little resolved history).
-// Ties break deterministically by wallet ascending.
-func Select(candidates []Candidate, statsByWallet map[string]Stats, minResolved, topN int) []string {
+// Select returns up to topN wallets that clear every gate in crit, ranked by
+// Score descending. Candidates whose stats are missing, or that fail any gate,
+// are excluded. With strict gates the result may be far fewer than topN — that's
+// intended (quality over a fixed count). Ties break by win rate, then wallet.
+func Select(candidates []Candidate, statsByWallet map[string]Stats, crit Criteria, topN int) []string {
 	type scored struct {
 		wallet  string
 		score   float64
@@ -46,10 +64,7 @@ func Select(candidates []Candidate, statsByWallet map[string]Stats, minResolved,
 	var pool []scored
 	for _, c := range candidates {
 		st, ok := statsByWallet[c.Wallet]
-		if !ok {
-			continue
-		}
-		if st.ResolvedMarkets < minResolved {
+		if !ok || !crit.meets(st) {
 			continue
 		}
 		pool = append(pool, scored{wallet: c.Wallet, score: Score(st), winRate: st.WinRate})

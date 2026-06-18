@@ -15,11 +15,15 @@ data:
   # ---- leaderboard: track top-30 consistent winners, refresh daily ----
   LEADERBOARD_WINDOW: "30d"
   LEADERBOARD_METRIC: "pnl"
-  LEADERBOARD_TOP_N: "30"
+  LEADERBOARD_TOP_N: "30" # max tracked; strict gates below may yield fewer
   STATS_REFRESH_INTERVAL: "24h"
-  STATS_MIN_RESOLVED: "3"
+  # Strict quality gates — a wallet must clear ALL to be tracked:
+  STATS_MIN_WIN_RATE: "0.90"        # >=90% win rate over resolved markets
+  STATS_MIN_PORTFOLIO_USD: "100000" # >=$100k portfolio
+  STATS_MIN_RESOLVED: "20"          # >=20 resolved markets (so 90% is meaningful)
+  STATS_MIN_REALIZED_PNL: "0"       # raise to require proven net profit
   CANDIDATE_TOPK: "50"
-  STATS_MAX_CANDIDATES: "80"
+  STATS_MAX_CANDIDATES: "100"
   STATS_CONCURRENCY: "8"
 
   # ---- consensus ----

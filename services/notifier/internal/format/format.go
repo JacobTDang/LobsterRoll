@@ -40,32 +40,32 @@ func FormatAlert(td bus.TradeDetected, m Market, ws WhaleStats) string {
 		emoji, action, side = "🟢", "ENTER", "BUY"
 	}
 
-	var b strings.Builder
-	fmt.Fprintf(&b, "%s %s (%s)  whale %s\n", emoji, action, side, shortenHex(td.Wallet))
-
-	switch {
-	case m.Found:
-		fmt.Fprintf(&b, "%s → %s\n", m.Question, m.Outcome)
-	case m.LookupFailed:
-		fmt.Fprintf(&b, "Market lookup unavailable (token %s)\n", shortenMiddle(td.TokenID, 4, 4))
-	default:
-		fmt.Fprintf(&b, "Unknown market (token %s)\n", shortenMiddle(td.TokenID, 4, 4))
-	}
-
+	lines := []string{fmt.Sprintf("%s %s (%s)  whale %s", emoji, action, side, shortenHex(td.Wallet))}
+	lines = append(lines, marketLine(td, m))
 	if ws.OK {
-		fmt.Fprintf(&b, "👤 %d%% win (%d mkts) · realized %s · %s portfolio\n",
-			int(ws.WinRate*100+0.5), ws.ResolvedMarkets, signedMoney(ws.RealizedPnlUSD), abbrevMoney(ws.PortfolioUSD))
+		lines = append(lines, fmt.Sprintf("👤 %d%% win (%d mkts) · realized %s · %s portfolio",
+			int(ws.WinRate*100+0.5), ws.ResolvedMarkets, signedMoney(ws.RealizedPnlUSD), abbrevMoney(ws.PortfolioUSD)))
 	}
-
-	fmt.Fprintf(&b, "💵 $%s  ·  %s @ $%s\n", notional(td.Size, td.Price), td.Size, td.Price)
+	lines = append(lines, fmt.Sprintf("💵 $%s  ·  %s @ $%s", notional(td.Size, td.Price), td.Size, td.Price))
 	if !td.ObservedAt.IsZero() {
-		fmt.Fprintf(&b, "🕒 %s\n", td.ObservedAt.UTC().Format("2006-01-02 15:04 UTC"))
+		lines = append(lines, fmt.Sprintf("🕒 %s", td.ObservedAt.UTC().Format("2006-01-02 15:04 UTC")))
 	}
 	if m.Found && m.Slug != "" {
-		fmt.Fprintf(&b, "📊 https://polymarket.com/event/%s\n", m.Slug)
+		lines = append(lines, "📊 https://polymarket.com/event/"+m.Slug)
 	}
-	fmt.Fprintf(&b, "🔗 https://polygonscan.com/tx/%s", td.TxHash)
-	return b.String()
+	return strings.Join(lines, "\n")
+}
+
+// marketLine renders the "what they're betting on" line, degrading gracefully.
+func marketLine(td bus.TradeDetected, m Market) string {
+	switch {
+	case m.Found:
+		return fmt.Sprintf("%s → %s", m.Question, m.Outcome)
+	case m.LookupFailed:
+		return fmt.Sprintf("Market lookup unavailable (token %s)", shortenMiddle(td.TokenID, 4, 4))
+	default:
+		return fmt.Sprintf("Unknown market (token %s)", shortenMiddle(td.TokenID, 4, 4))
+	}
 }
 
 // FormatProposal renders an order proposal awaiting approval.

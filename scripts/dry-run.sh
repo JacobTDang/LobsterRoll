@@ -32,7 +32,9 @@ sleep 1
 start leaderboard "LEADERBOARD_GRPC_ADDR=:50051 LEADERBOARD_DB_PATH=.local/dry-lb.db NATS_URL=$NATS_URL" ./bin/leaderboard
 start enrichment "ENRICHMENT_GRPC_ADDR=:50052 ENRICHMENT_DB_PATH=.local/dry-enr.db" ./bin/enrichment
 sleep 2
-start strategy "NATS_URL=$NATS_URL" ./bin/strategy
+# strategy is intentionally NOT started: it produces the mirror-proposal /
+# approve-reject messages, which are only useful for live trading. A dry run is
+# alerts-only, so we skip it to keep one clean message per trade.
 start consensus "CONSENSUS_DB_PATH=.local/dry-consensus.db NATS_URL=$NATS_URL" ./bin/consensus
 start notifier "TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID=$TELEGRAM_CHAT_ID ENRICHMENT_GRPC_ADDR=localhost:50052 LEADERBOARD_GRPC_ADDR=localhost:50051 NATS_URL=$NATS_URL" ./bin/notifier
 

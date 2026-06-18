@@ -21,7 +21,10 @@ type Config struct {
 
 	// Stats pipeline (per-wallet consistency stats + selection).
 	DataAPIBase        string        // data-api host for per-wallet crawls
-	StatsMinResolved   int           // exclude wallets with fewer resolved markets
+	StatsMinResolved   int           // selection gate: min resolved markets (sample size)
+	StatsMinWinRate    float64       // selection gate: min win rate (0..1)
+	StatsMinPortfolio  float64       // selection gate: min portfolio value (USD)
+	StatsMinRealized   float64       // selection gate: min realized PnL (USD)
 	CandidateTopK      int           // top-K per window pulled into the candidate pool
 	StatsMaxCandidates int           // cap on candidates crawled per refresh
 	StatsMaxActivity   int           // cap on activity rows fetched per wallet
@@ -40,9 +43,12 @@ const (
 	defGRPCAddr = ":50051"
 
 	defDataAPIBase        = "https://data-api.polymarket.com"
-	defStatsMinResolved   = 3  // light gate: a real (if modest) resolved-market record
-	defCandidateTopK      = 50 // top-K per window into the pool
-	defStatsMaxCandidates = 80 // crawl up to this many so >=30 clear the gate
+	defStatsMinResolved   = 20      // sample size: 90% win rate is noise below this
+	defStatsMinWinRate    = 0.90    // only proven-accurate wallets
+	defStatsMinPortfolio  = 100_000 // only well-capitalized wallets ($100k+)
+	defStatsMinRealized   = 0       // optional: set to require proven net profit
+	defCandidateTopK      = 50      // top-K per window into the pool
+	defStatsMaxCandidates = 100     // crawl a wide pool; strict gates keep few
 	defStatsMaxActivity   = 3000
 	defStatsConcurrency   = 8
 	defStatsRefresh       = 24 * time.Hour // refresh the watchset once a day
@@ -61,6 +67,9 @@ func Load(getenv func(string) string) (Config, error) {
 
 		DataAPIBase:        orDefault(getenv("LEADERBOARD_DATA_API_BASE"), defDataAPIBase),
 		StatsMinResolved:   defStatsMinResolved,
+		StatsMinWinRate:    defStatsMinWinRate,
+		StatsMinPortfolio:  defStatsMinPortfolio,
+		StatsMinRealized:   defStatsMinRealized,
 		CandidateTopK:      defCandidateTopK,
 		StatsMaxCandidates: defStatsMaxCandidates,
 		StatsMaxActivity:   defStatsMaxActivity,
@@ -94,6 +103,22 @@ func Load(getenv func(string) string) (Config, error) {
 			*p.dst = n
 		}
 	}
+	for _, p := range []struct {
+		key string
+		dst *float64
+	}{
+		{"STATS_MIN_WIN_RATE", &cfg.StatsMinWinRate},
+		{"STATS_MIN_PORTFOLIO_USD", &cfg.StatsMinPortfolio},
+		{"STATS_MIN_REALIZED_PNL", &cfg.StatsMinRealized},
+	} {
+		if v := getenv(p.key); v != "" {
+			f, err := strconv.ParseFloat(v, 64)
+			if err != nil {
+				return Config{}, fmt.Errorf("%s: %w", p.key, err)
+			}
+			*p.dst = f
+		}
+	}
 	if v := getenv("STATS_REFRESH_INTERVAL"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil {
@@ -113,6 +138,9 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	if cfg.StatsMinResolved < 0 {
 		return Config{}, fmt.Errorf("STATS_MIN_RESOLVED must be >= 0, got %d", cfg.StatsMinResolved)
+	}
+	if cfg.StatsMinWinRate < 0 || cfg.StatsMinWinRate > 1 {
+		return Config{}, fmt.Errorf("STATS_MIN_WIN_RATE must be in [0,1], got %v", cfg.StatsMinWinRate)
 	}
 	if cfg.CandidateTopK <= 0 {
 		return Config{}, fmt.Errorf("CANDIDATE_TOPK must be > 0, got %d", cfg.CandidateTopK)
