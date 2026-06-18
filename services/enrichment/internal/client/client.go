@@ -50,7 +50,7 @@ func Resolve(data []byte, tokenID string) (Enrichment, bool, error) {
 	for _, m := range markets {
 		var tokens []string
 		if err := json.Unmarshal([]byte(m.ClobTokenIDs), &tokens); err != nil {
-			return Enrichment{}, false, fmt.Errorf("decode clobTokenIds: %w", err)
+			continue // skip a malformed sibling; don't fail a resolvable token
 		}
 		idx := indexOf(tokens, tokenID)
 		if idx < 0 {
@@ -58,7 +58,7 @@ func Resolve(data []byte, tokenID string) (Enrichment, bool, error) {
 		}
 		var outcomes []string
 		if err := json.Unmarshal([]byte(m.Outcomes), &outcomes); err != nil {
-			return Enrichment{}, false, fmt.Errorf("decode outcomes: %w", err)
+			continue
 		}
 		outcome := ""
 		if idx < len(outcomes) {

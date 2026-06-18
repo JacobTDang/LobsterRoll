@@ -45,7 +45,7 @@ func Parse(data []byte, tokenID string) (Data, bool, error) {
 	for _, m := range markets {
 		var tokens []string
 		if err := json.Unmarshal([]byte(m.ClobTokenIDs), &tokens); err != nil {
-			return Data{}, false, fmt.Errorf("decode clobTokenIds: %w", err)
+			continue // skip a malformed sibling; don't fail a resolvable token
 		}
 		idx := indexOf(tokens, tokenID)
 		if idx < 0 {
@@ -53,7 +53,7 @@ func Parse(data []byte, tokenID string) (Data, bool, error) {
 		}
 		var prices []string
 		if err := json.Unmarshal([]byte(m.OutcomePrices), &prices); err != nil {
-			return Data{}, false, fmt.Errorf("decode outcomePrices: %w", err)
+			continue
 		}
 		price := 0.0
 		if idx < len(prices) {

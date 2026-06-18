@@ -56,6 +56,20 @@ func TestParse_NotFound(t *testing.T) {
 	}
 }
 
+func TestParse_SkipsMalformedSibling(t *testing.T) {
+	body := []byte(`[
+		{"conditionId":"0xbad","clobTokenIds":"not-json","outcomePrices":"[]","liquidityNum":1},
+		{"conditionId":"0xc","clobTokenIds":"[\"` + tokUnder + `\"]","outcomePrices":"[\"0.585\"]","liquidityNum":1000,"active":true}
+	]`)
+	d, ok, err := Parse(body, tokUnder)
+	if err != nil || !ok {
+		t.Fatalf("Parse: ok=%v err=%v (malformed sibling should be skipped)", ok, err)
+	}
+	if d.CurrentPrice != 0.585 || d.LiquidityUSD != 1000 {
+		t.Fatalf("got %+v, want price 0.585 / liq 1000", d)
+	}
+}
+
 func TestFetch(t *testing.T) {
 	var gotQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

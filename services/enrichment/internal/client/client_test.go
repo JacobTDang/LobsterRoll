@@ -64,6 +64,21 @@ func TestResolve_NotFound(t *testing.T) {
 	}
 }
 
+func TestResolve_SkipsMalformedSibling(t *testing.T) {
+	// A malformed sibling market must not abort resolution of a good one.
+	body := []byte(`[
+		{"conditionId":"0xbad","clobTokenIds":"not-json","outcomes":"[]","question":"bad"},
+		{"conditionId":"0xc","clobTokenIds":"[\"` + tokUnder + `\"]","outcomes":"[\"Yes\"]","question":"Good?","slug":"g"}
+	]`)
+	e, ok, err := Resolve(body, tokUnder)
+	if err != nil || !ok {
+		t.Fatalf("Resolve: ok=%v err=%v (malformed sibling should be skipped)", ok, err)
+	}
+	if e.MarketQuestion != "Good?" || e.Outcome != "Yes" {
+		t.Fatalf("got %+v, want Good?/Yes", e)
+	}
+}
+
 func TestResolve_BadJSON(t *testing.T) {
 	if _, _, err := Resolve([]byte("not json"), tokUnder); err == nil {
 		t.Error("expected error on malformed json")
