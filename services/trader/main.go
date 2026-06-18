@@ -53,7 +53,7 @@ func run(ctx context.Context, log *slog.Logger) error {
 	defer sub.Close()
 
 	hs := halt.New()
-	c := caps.New(cfg.PerTradeUSD, cfg.PerDayUSD, cfg.ExposureUSD)
+	c := caps.New(cfg.PerTradeUSD, cfg.PerDayUSD, cfg.ExposureUSD, st, log)
 	clobClient := clob.New(cfg.CLOBBase, cfg.Creds, nil)
 	h := handler.New(c, sgn, clobClient, st, pub, hs, cfg.Policy, log)
 

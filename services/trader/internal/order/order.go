@@ -9,7 +9,6 @@ package order
 import (
 	"crypto/ecdsa"
 	"fmt"
-	"math"
 	"math/big"
 	"strconv"
 
@@ -114,9 +113,12 @@ func (o Order) Sign(verifyingContract common.Address, key *ecdsa.PrivateKey) ([]
 	return sig, nil
 }
 
-// scale6 converts a USD/share float to a 6-decimal integer amount.
+// scale6 converts a USD/share float to a 6-decimal integer amount via big.Float
+// so large sizes can't overflow int64.
 func scale6(v float64) *big.Int {
-	return big.NewInt(int64(math.Round(v * 1e6)))
+	f := new(big.Float).Mul(big.NewFloat(v), big.NewFloat(1e6))
+	i, _ := f.Int(nil)
+	return i
 }
 
 // FromProposal builds an unsigned Order mirroring a proposal. maker is the funds

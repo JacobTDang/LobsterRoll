@@ -4,7 +4,9 @@ package signer
 
 import (
 	"crypto/ecdsa"
+	crand "crypto/rand"
 	"fmt"
+	"math/big"
 	"strings"
 	"time"
 
@@ -16,6 +18,9 @@ import (
 	"github.com/JacobTDang/LobsterRoll/services/trader/internal/clob"
 	"github.com/JacobTDang/LobsterRoll/services/trader/internal/order"
 )
+
+// saltMax bounds the random salt to a positive int64 range.
+var saltMax = new(big.Int).Lsh(big.NewInt(1), 62)
 
 // Signer signs orders for one exchange with one key.
 type Signer struct {
@@ -49,7 +54,11 @@ func New(privHex, makerAddr, exchangeAddr string, sigType uint8) (*Signer, error
 // Sign builds the order from the proposal, signs it, and returns the CLOB payload.
 func (s *Signer) Sign(p bus.OrderProposal) (clob.SignedOrder, error) {
 	now := s.now()
-	o, err := order.FromProposal(p, s.maker, s.signer, s.sigType, now.UnixNano(), now.UnixMilli())
+	saltN, err := crand.Int(crand.Reader, saltMax)
+	if err != nil {
+		return clob.SignedOrder{}, fmt.Errorf("salt entropy: %w", err)
+	}
+	o, err := order.FromProposal(p, s.maker, s.signer, s.sigType, saltN.Int64(), now.UnixMilli())
 	if err != nil {
 		return clob.SignedOrder{}, err
 	}

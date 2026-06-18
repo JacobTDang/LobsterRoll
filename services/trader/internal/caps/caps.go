@@ -3,14 +3,24 @@
 //
 // Reserve atomically checks AND commits a placement against all caps, so under
 // concurrency the committed total can never exceed a cap. If placement then
-// fails, Release rolls the reservation back.
+// fails, Release rolls the reservation back. The daily-spend and open-exposure
+// ledger is persisted (via Ledger) and reloaded on startup, so a restart cannot
+// reset the cumulative caps to zero.
 package caps
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 )
+
+// Ledger persists the cumulative cap ledger so it survives restarts.
+type Ledger interface {
+	LoadCaps(ctx context.Context) (dayKey string, daySpent, openExposure float64, ok bool, err error)
+	SaveCaps(ctx context.Context, dayKey string, daySpent, openExposure float64) error
+}
 
 // Caps holds the configured limits and the running ledger.
 type Caps struct {
@@ -21,7 +31,9 @@ type Caps struct {
 	mu           sync.Mutex
 	daySpent     float64
 	dayKey       string // UTC date of the current day window
-	openExposure float64
+	openExposure float64 // signed net long exposure (buys add, sells subtract)
+	ledger       Ledger
+	log          *slog.Logger
 	now          func() time.Time
 }
 
@@ -31,25 +43,37 @@ type Decision struct {
 	Reason  string
 }
 
-// New constructs Caps with the given USD limits.
-func New(maxPerTrade, maxPerDay, maxOpenExposure float64) *Caps {
-	return &Caps{
+// New constructs Caps. ledger (optional) persists/reloads the cumulative ledger.
+func New(maxPerTrade, maxPerDay, maxOpenExposure float64, ledger Ledger, log *slog.Logger) *Caps {
+	c := &Caps{
 		maxPerTrade: maxPerTrade, maxPerDay: maxPerDay, maxOpenExposure: maxOpenExposure,
-		now: time.Now,
+		ledger: ledger, log: log, now: time.Now,
 	}
+	if ledger != nil {
+		if dk, ds, oe, ok, err := ledger.LoadCaps(context.Background()); err != nil {
+			if log != nil {
+				log.Error("load caps ledger failed; starting from zero", "err", err)
+			}
+		} else if ok {
+			c.dayKey, c.daySpent, c.openExposure = dk, ds, oe
+		}
+	}
+	return c
 }
 
+// rollDay resets the daily spend only when crossing forward to a later UTC day.
+// Using a lexical > guard means a backward clock step never re-opens the budget.
 func (c *Caps) rollDay() {
 	key := c.now().UTC().Format("2006-01-02")
-	if key != c.dayKey {
+	if key > c.dayKey {
 		c.dayKey = key
 		c.daySpent = 0
 	}
 }
 
-// Reserve atomically authorizes and commits a sizeUSD placement. buy increases
-// open exposure; a sell decreases it (floored at zero). Returns Allowed=false
-// with a reason if any cap would be exceeded (nothing is committed then).
+// Reserve atomically authorizes and commits a sizeUSD placement. buy adds to net
+// exposure, a sell subtracts. Returns Allowed=false (nothing committed) if any
+// cap would be exceeded.
 func (c *Caps) Reserve(sizeUSD float64, buy bool) Decision {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -66,18 +90,13 @@ func (c *Caps) Reserve(sizeUSD float64, buy bool) Decision {
 	}
 
 	c.daySpent += sizeUSD
-	if buy {
-		c.openExposure += sizeUSD
-	} else {
-		c.openExposure -= sizeUSD
-		if c.openExposure < 0 {
-			c.openExposure = 0
-		}
-	}
+	c.openExposure += signed(sizeUSD, buy)
+	c.persist()
 	return Decision{Allowed: true}
 }
 
-// Release rolls back a reservation when the placement failed.
+// Release rolls back a reservation exactly (symmetric with Reserve) when the
+// placement failed.
 func (c *Caps) Release(sizeUSD float64, buy bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -85,17 +104,27 @@ func (c *Caps) Release(sizeUSD float64, buy bool) {
 	if c.daySpent < 0 {
 		c.daySpent = 0
 	}
+	c.openExposure -= signed(sizeUSD, buy)
+	c.persist()
+}
+
+func signed(sizeUSD float64, buy bool) float64 {
 	if buy {
-		c.openExposure -= sizeUSD
-		if c.openExposure < 0 {
-			c.openExposure = 0
-		}
-	} else {
-		c.openExposure += sizeUSD
+		return sizeUSD
+	}
+	return -sizeUSD
+}
+
+func (c *Caps) persist() {
+	if c.ledger == nil {
+		return
+	}
+	if err := c.ledger.SaveCaps(context.Background(), c.dayKey, c.daySpent, c.openExposure); err != nil && c.log != nil {
+		c.log.Error("persist caps ledger failed", "err", err)
 	}
 }
 
-// Snapshot returns the current daily spend and open exposure (for logging/tests).
+// Snapshot returns the current daily spend and net open exposure.
 func (c *Caps) Snapshot() (daySpent, openExposure float64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

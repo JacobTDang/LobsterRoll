@@ -6,6 +6,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -36,7 +37,13 @@ func Open(ctx context.Context, path string) (*Store, error) {
 			order_id    TEXT NOT NULL DEFAULT '',
 			status      TEXT NOT NULL,
 			claimed_at  INTEGER NOT NULL
-		)`); err != nil {
+		);
+		CREATE TABLE IF NOT EXISTS caps_ledger (
+			id            INTEGER PRIMARY KEY CHECK (id = 1),
+			day_key       TEXT NOT NULL,
+			day_spent     REAL NOT NULL,
+			open_exposure REAL NOT NULL
+		);`); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("create schema: %w", err)
 	}
@@ -62,6 +69,42 @@ func (s *Store) Claim(ctx context.Context, proposalID string) (bool, error) {
 		return false, fmt.Errorf("claim rows %s: %w", proposalID, err)
 	}
 	return n == 1, nil
+}
+
+// Unclaim removes a still-'claimed' placement so a definitely-not-sent proposal
+// (e.g. a pre-network sign failure) can be retried on redelivery.
+func (s *Store) Unclaim(ctx context.Context, proposalID string) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM placements WHERE proposal_id = ? AND status = 'claimed'`, proposalID)
+	if err != nil {
+		return fmt.Errorf("unclaim %s: %w", proposalID, err)
+	}
+	return nil
+}
+
+// LoadCaps reads the persisted cap ledger. ok=false if none has been saved.
+func (s *Store) LoadCaps(ctx context.Context) (dayKey string, daySpent, openExposure float64, ok bool, err error) {
+	row := s.db.QueryRowContext(ctx, `SELECT day_key, day_spent, open_exposure FROM caps_ledger WHERE id = 1`)
+	err = row.Scan(&dayKey, &daySpent, &openExposure)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", 0, 0, false, nil
+	}
+	if err != nil {
+		return "", 0, 0, false, fmt.Errorf("load caps: %w", err)
+	}
+	return dayKey, daySpent, openExposure, true, nil
+}
+
+// SaveCaps persists the cap ledger (single row).
+func (s *Store) SaveCaps(ctx context.Context, dayKey string, daySpent, openExposure float64) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO caps_ledger (id, day_key, day_spent, open_exposure) VALUES (1, ?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET day_key=excluded.day_key, day_spent=excluded.day_spent, open_exposure=excluded.open_exposure`,
+		dayKey, daySpent, openExposure)
+	if err != nil {
+		return fmt.Errorf("save caps: %w", err)
+	}
+	return nil
 }
 
 // MarkResult records the outcome of a placement.

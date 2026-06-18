@@ -28,9 +28,15 @@ func (f *fakeCaps) Reserve(float64, bool) caps.Decision {
 }
 func (f *fakeCaps) Release(float64, bool) { f.released++ }
 
-type fakeSigner struct{ err error }
+type fakeSigner struct {
+	err  error
+	hook func() // runs during Sign (to simulate halt arriving mid-pipeline)
+}
 
 func (f fakeSigner) Sign(bus.OrderProposal) (clob.SignedOrder, error) {
+	if f.hook != nil {
+		f.hook()
+	}
 	return clob.SignedOrder{Signature: "0xsig"}, f.err
 }
 
@@ -63,6 +69,17 @@ func (s *fakeStore) Claim(_ context.Context, id string) (bool, error) {
 	}
 	s.claimed[id] = true
 	return true, nil
+}
+func (s *fakeStore) Unclaim(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.claimed, id)
+	return nil
+}
+func (s *fakeStore) isClaimed(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.claimed[id]
 }
 func (s *fakeStore) MarkResult(context.Context, string, string, string) error { return nil }
 
@@ -140,11 +157,12 @@ func TestPlace_Idempotent(t *testing.T) {
 	}
 }
 
-func TestPlace_SignErrorReleasesCaps(t *testing.T) {
+func TestPlace_SignErrorReleasesCapsAndUnclaims(t *testing.T) {
 	c := &fakeCaps{allow: true}
 	pl := &fakePlacer{}
 	pub := &fakePub{}
-	h := New(c, fakeSigner{err: errors.New("bad key")}, pl, newStore(), pub, halt.New(), config.ExecutionPolicy{Mode: config.ModeApproval}, quiet())
+	st := newStore()
+	h := New(c, fakeSigner{err: errors.New("bad key")}, pl, st, pub, halt.New(), config.ExecutionPolicy{Mode: config.ModeApproval}, quiet())
 	h.OnApproved(context.Background(), bus.OrderDecision{Proposal: proposal, Approved: true})
 	if pl.calls != 0 {
 		t.Fatalf("placer called after sign error: %d", pl.calls)
@@ -152,8 +170,36 @@ func TestPlace_SignErrorReleasesCaps(t *testing.T) {
 	if c.released != 1 {
 		t.Fatalf("caps released = %d, want 1 (rollback on sign failure)", c.released)
 	}
+	if st.isClaimed("prop-1") {
+		t.Fatal("sign failure must unclaim (definitely-not-sent → retryable)")
+	}
 	if pub.last().Filled {
 		t.Fatal("want failed result")
+	}
+}
+
+func TestPlace_HaltMidFlightRefuses(t *testing.T) {
+	c := &fakeCaps{allow: true}
+	pl := &fakePlacer{res: clob.PlaceResult{Success: true, OrderID: "o"}}
+	pub := &fakePub{}
+	st := newStore()
+	hs := halt.New()
+	// Halt flips DURING signing, after the initial halt check passed.
+	sgn := fakeSigner{hook: func() { hs.Set(true) }}
+	h := New(c, sgn, pl, st, pub, hs, config.ExecutionPolicy{Mode: config.ModeApproval}, quiet())
+	h.OnApproved(context.Background(), bus.OrderDecision{Proposal: proposal, Approved: true})
+
+	if pl.calls != 0 {
+		t.Fatalf("placer called despite halt arriving mid-flight: %d", pl.calls)
+	}
+	if c.released != 1 {
+		t.Fatalf("caps released = %d, want 1", c.released)
+	}
+	if st.isClaimed("prop-1") {
+		t.Fatal("halt mid-flight (nothing sent) must unclaim")
+	}
+	if r := pub.last(); r.Filled || r.Err != "halted" {
+		t.Fatalf("result = %+v, want failed/halted", r)
 	}
 }
 

@@ -67,11 +67,21 @@ type placeReq struct {
 	OrderType string      `json:"orderType"`
 }
 
-// PlaceResult is the parsed response of a placement.
+// PlaceResult is the parsed response of a successful placement.
 type PlaceResult struct {
-	Success bool   `json:"success"`
-	OrderID string `json:"orderID"`
-	Status  string `json:"status"` // e.g. "matched", "live", "unmatched"
+	Success bool
+	OrderID string
+	Status  string // e.g. "matched", "live", "unmatched"
+}
+
+// placeResp mirrors the CLOB response. success is a pointer so an absent field
+// (a 2xx body that omits it) is not treated as a rejection.
+type placeResp struct {
+	Success  *bool  `json:"success"`
+	Error    string `json:"error"`
+	ErrorMsg string `json:"errorMsg"`
+	OrderID  string `json:"orderID"`
+	Status   string `json:"status"`
 }
 
 // Client posts orders to the CLOB.
@@ -128,12 +138,13 @@ func (c *Client) PlaceOrder(ctx context.Context, o SignedOrder) (PlaceResult, er
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return PlaceResult{}, fmt.Errorf("clob status %d: %s", resp.StatusCode, raw)
 	}
-	var r PlaceResult
+	var r placeResp
 	if err := json.Unmarshal(raw, &r); err != nil {
 		return PlaceResult{}, fmt.Errorf("decode response: %w", err)
 	}
-	if !r.Success {
-		return PlaceResult{}, fmt.Errorf("clob rejected order %s: status=%s", r.OrderID, r.Status)
+	// Treat a 2xx as success unless the body explicitly says otherwise.
+	if (r.Success != nil && !*r.Success) || r.Error != "" || r.ErrorMsg != "" {
+		return PlaceResult{}, fmt.Errorf("clob rejected order %s: status=%s err=%s%s", r.OrderID, r.Status, r.Error, r.ErrorMsg)
 	}
-	return r, nil
+	return PlaceResult{Success: true, OrderID: r.OrderID, Status: r.Status}, nil
 }

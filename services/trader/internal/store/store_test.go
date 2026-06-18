@@ -50,6 +50,55 @@ func TestClaim_PersistsAcrossReopen(t *testing.T) {
 	}
 }
 
+func TestUnclaim_AllowsRetry(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	if ok, _ := s.Claim(ctx, "p1"); !ok {
+		t.Fatal("claim")
+	}
+	if ok, _ := s.Claim(ctx, "p1"); ok {
+		t.Fatal("second claim should fail before unclaim")
+	}
+	if err := s.Unclaim(ctx, "p1"); err != nil {
+		t.Fatalf("Unclaim: %v", err)
+	}
+	if ok, _ := s.Claim(ctx, "p1"); !ok {
+		t.Fatal("claim should succeed after unclaim (retryable)")
+	}
+}
+
+func TestUnclaim_KeepsCompleted(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	_, _ = s.Claim(ctx, "p1")
+	_ = s.MarkResult(ctx, "p1", "ord-1", "matched")
+	// Unclaim must NOT remove a completed placement (only 'claimed' rows).
+	if err := s.Unclaim(ctx, "p1"); err != nil {
+		t.Fatalf("Unclaim: %v", err)
+	}
+	if ok, _ := s.Claim(ctx, "p1"); ok {
+		t.Fatal("completed placement must not be re-claimable")
+	}
+}
+
+func TestCapsLedger_RoundTrip(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	if _, _, _, ok, err := s.LoadCaps(ctx); err != nil || ok {
+		t.Fatalf("fresh LoadCaps ok=%v err=%v, want not-ok", ok, err)
+	}
+	if err := s.SaveCaps(ctx, "2026-06-18", 120.5, 80.25); err != nil {
+		t.Fatalf("SaveCaps: %v", err)
+	}
+	if err := s.SaveCaps(ctx, "2026-06-18", 140.0, 95.0); err != nil { // upsert
+		t.Fatalf("SaveCaps upsert: %v", err)
+	}
+	dk, ds, oe, ok, err := s.LoadCaps(ctx)
+	if err != nil || !ok || dk != "2026-06-18" || ds != 140.0 || oe != 95.0 {
+		t.Fatalf("LoadCaps = %s/%v/%v ok=%v err=%v", dk, ds, oe, ok, err)
+	}
+}
+
 func TestClaim_RaceSingleWinner(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)

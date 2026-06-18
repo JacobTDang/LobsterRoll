@@ -82,6 +82,30 @@ func TestPlaceOrder_HTTPError(t *testing.T) {
 	}
 }
 
+func TestPlaceOrder_2xxWithoutSuccessField(t *testing.T) {
+	// A 2xx body that omits "success" must be treated as accepted, not rejected.
+	c, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"orderID":"ord-9","status":"live"}`))
+	})
+	res, err := c.PlaceOrder(context.Background(), sample)
+	if err != nil {
+		t.Fatalf("PlaceOrder should accept a 2xx without success field: %v", err)
+	}
+	if res.OrderID != "ord-9" || res.Status != "live" {
+		t.Fatalf("result = %+v", res)
+	}
+}
+
+func TestPlaceOrder_ErrorField(t *testing.T) {
+	// A 2xx body carrying an error message is a rejection.
+	c, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"error":"insufficient balance"}`))
+	})
+	if _, err := c.PlaceOrder(context.Background(), sample); err == nil {
+		t.Fatal("expected error when body carries an error field")
+	}
+}
+
 func TestPlaceOrder_Partial(t *testing.T) {
 	// A partial fill is still a success; status reflects it.
 	c, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
