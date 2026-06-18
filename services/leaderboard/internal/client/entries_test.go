@@ -74,4 +74,7 @@ func TestFetchEntries_Validation(t *testing.T) {
 	if _, err := c.FetchEntries(context.Background(), MetricPNL, "weekly", 5); err == nil {
 		t.Error("invalid window should error")
 	}
+	if _, err := c.FetchEntries(context.Background(), Metric("bogus"), "30d", 5); err == nil {
+		t.Error("invalid metric should error")
+	}
 }
