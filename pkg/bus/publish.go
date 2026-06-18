@@ -40,6 +40,21 @@ func (p *Publisher) PublishProposal(o OrderProposal) error {
 	return p.publishJSON(SubjectOrderProposed, o)
 }
 
+// PublishDecision publishes an approve/reject decision, routed to
+// SubjectOrderApproved or SubjectOrderRejected by d.Approved.
+func (p *Publisher) PublishDecision(d OrderDecision) error {
+	subject := SubjectOrderRejected
+	if d.Approved {
+		subject = SubjectOrderApproved
+	}
+	return p.publishJSON(subject, d)
+}
+
+// PublishControl publishes a halt/resume control message on SubjectControlHalt.
+func (p *Publisher) PublishControl(c ControlMsg) error {
+	return p.publishJSON(SubjectControlHalt, c)
+}
+
 func (p *Publisher) publishJSON(subject string, v any) error {
 	data, err := json.Marshal(v)
 	if err != nil {

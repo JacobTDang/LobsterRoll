@@ -34,6 +34,13 @@ type OrderDecision struct {
 	By         string `json:"by"` // "telegram:<user>" or "auto"
 }
 
+// ControlMsg is published on SubjectControlHalt to halt or resume execution
+// (the kill switch). trader-svc consumes it.
+type ControlMsg struct {
+	Halted bool   `json:"halted"`
+	By     string `json:"by"`
+}
+
 // OrderResult is published on SubjectOrderFilled/SubjectOrderFailed by trader-svc.
 type OrderResult struct {
 	ProposalID string `json:"proposal_id"`

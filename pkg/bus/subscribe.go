@@ -46,6 +46,18 @@ func (s *Subscriber) OnTradeDetected(queue string, handler func(TradeDetected)) 
 	})
 }
 
+// OnOrderProposed invokes handler for each OrderProposal on SubjectOrderProposed.
+func (s *Subscriber) OnOrderProposed(queue string, handler func(OrderProposal)) (*nats.Subscription, error) {
+	return s.nc.QueueSubscribe(SubjectOrderProposed, queue, func(msg *nats.Msg) {
+		var p OrderProposal
+		if err := json.Unmarshal(msg.Data, &p); err != nil {
+			s.log.Warn("dropping undecodable orders.proposed message", "err", err)
+			return
+		}
+		handler(p)
+	})
+}
+
 // Close drains and closes the connection.
 func (s *Subscriber) Close() {
 	if s.nc != nil {
