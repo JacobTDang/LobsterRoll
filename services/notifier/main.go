@@ -13,10 +13,10 @@ import (
 
 	lobsterrollv1 "github.com/JacobTDang/LobsterRoll/gen/go"
 	"github.com/JacobTDang/LobsterRoll/pkg/bus"
+	"github.com/JacobTDang/LobsterRoll/pkg/dedup"
 	"github.com/JacobTDang/LobsterRoll/pkg/svc"
 	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/approval"
 	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/config"
-	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/dedup"
 	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/handler"
 	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/telegram"
 )
@@ -72,7 +72,7 @@ func run(ctx context.Context, log *slog.Logger) error {
 
 	// One-way alerts on every detected trade.
 	if _, err := sub.OnTradeDetected(cfg.QueueGroup, func(td bus.TradeDetected) {
-		mctx, cancel := detached(ctx)
+		mctx, cancel := svc.Detached(ctx)
 		defer cancel()
 		alerts.Handle(mctx, td)
 	}); err != nil {
@@ -80,7 +80,7 @@ func run(ctx context.Context, log *slog.Logger) error {
 	}
 	// Premium consensus alerts when multiple tracked wallets converge on a bet.
 	if _, err := sub.OnConsensus(cfg.QueueGroup, func(sig bus.ConsensusSignal) {
-		mctx, cancel := detached(ctx)
+		mctx, cancel := svc.Detached(ctx)
 		defer cancel()
 		alerts.HandleConsensus(mctx, sig)
 	}); err != nil {
@@ -88,7 +88,7 @@ func run(ctx context.Context, log *slog.Logger) error {
 	}
 	// Two-way: post each proposal with approve/reject buttons.
 	if _, err := sub.OnOrderProposed(cfg.QueueGroup, func(p bus.OrderProposal) {
-		mctx, cancel := detached(ctx)
+		mctx, cancel := svc.Detached(ctx)
 		defer cancel()
 		mgr.OnProposal(mctx, p)
 	}); err != nil {
@@ -131,24 +131,18 @@ func pollUpdates(ctx context.Context, tg *telegram.Client, mgr *approval.Manager
 			case u.CallbackQuery != nil:
 				cb := *u.CallbackQuery
 				go func() {
-					dctx, cancel := detached(ctx)
+					dctx, cancel := svc.Detached(ctx)
 					defer cancel()
 					mgr.HandleCallback(dctx, cb)
 				}()
 			case u.Message != nil && strings.HasPrefix(u.Message.Text, "/"):
 				msg := u.Message
 				go func() {
-					dctx, cancel := detached(ctx)
+					dctx, cancel := svc.Detached(ctx)
 					defer cancel()
 					mgr.HandleCommand(dctx, msg.Text, msg.Chat.ID, msg.From.Username)
 				}()
 			}
 		}
 	}
-}
-
-// detached returns a bounded context divorced from shutdown cancellation so an
-// in-flight Telegram round-trip completes during the subscriber's drain.
-func detached(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 }

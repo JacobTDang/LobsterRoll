@@ -8,7 +8,19 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 )
+
+// detachedTimeout bounds work that outlives shutdown cancellation.
+const detachedTimeout = 30 * time.Second
+
+// Detached returns a context divorced from ctx's cancellation but bounded by a
+// timeout, so an in-flight side effect (a NATS publish, a Telegram round-trip)
+// can finish during the graceful-shutdown drain instead of being cut off. The
+// caller must defer the returned cancel.
+func Detached(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), detachedTimeout)
+}
 
 // Run wires up a JSON logger and a context cancelled on SIGINT/SIGTERM, then
 // invokes fn. fn should block until ctx is done and return nil on clean

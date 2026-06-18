@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"log/slog"
-	"time"
 
 	"github.com/JacobTDang/LobsterRoll/pkg/bus"
 	"github.com/JacobTDang/LobsterRoll/pkg/svc"
@@ -43,7 +42,7 @@ func run(ctx context.Context, log *slog.Logger) error {
 	if _, err := sub.OnTradeDetected(cfg.QueueGroup, func(td bus.TradeDetected) {
 		// Detach from the shutdown-cancelled ctx (bounded) so a proposal in flight
 		// at SIGTERM still completes during drain.
-		mctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		mctx, cancel := svc.Detached(ctx)
 		defer cancel()
 		h.Handle(mctx, td)
 	}); err != nil {

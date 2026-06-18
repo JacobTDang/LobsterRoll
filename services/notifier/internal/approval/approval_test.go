@@ -79,9 +79,9 @@ func newMgr() (*Manager, *fakeTG, *fakePub) {
 
 func TestParseCallback(t *testing.T) {
 	tests := []struct {
-		in            string
-		action, key   string
-		ok            bool
+		in          string
+		action, key string
+		ok          bool
 	}{
 		{"a:7", "a", "7", true},
 		{"r:42", "r", "42", true},

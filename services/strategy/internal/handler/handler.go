@@ -8,9 +8,9 @@ import (
 	"strings"
 
 	"github.com/JacobTDang/LobsterRoll/pkg/bus"
+	"github.com/JacobTDang/LobsterRoll/pkg/dedup"
 	"github.com/JacobTDang/LobsterRoll/services/strategy/internal/decide"
 	"github.com/JacobTDang/LobsterRoll/services/strategy/internal/marketdata"
-	"github.com/JacobTDang/LobsterRoll/services/strategy/internal/seen"
 )
 
 // MarketSource provides live market data for a token.
@@ -27,7 +27,7 @@ type Proposer interface {
 type Handler struct {
 	src       MarketSource
 	pub       Proposer
-	seen      *seen.Set
+	seen      *dedup.GenSet
 	policy    decide.Policy
 	allowlist map[string]bool // condition ids; empty => allow all
 	log       *slog.Logger
@@ -35,7 +35,7 @@ type Handler struct {
 
 // New constructs a Handler. An empty allowlist means all markets are allowed.
 func New(src MarketSource, pub Proposer, policy decide.Policy, allowlist map[string]bool, log *slog.Logger) *Handler {
-	return &Handler{src: src, pub: pub, seen: seen.New(), policy: policy, allowlist: allowlist, log: log}
+	return &Handler{src: src, pub: pub, seen: dedup.NewGen(), policy: policy, allowlist: allowlist, log: log}
 }
 
 // Handle vets one detected trade. Transient market-data errors are retryable

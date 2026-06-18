@@ -35,54 +35,40 @@ func NewSubscriber(url string, log *slog.Logger) (*Subscriber, error) {
 	return &Subscriber{nc: nc, log: log, closed: closed}, nil
 }
 
-// OnTradeDetected invokes handler for each TradeDetected on SubjectTradeDetected.
-// Using a queue group lets multiple instances share the load. Messages that fail
-// to decode are dropped (both producer and consumer are first-party).
-func (s *Subscriber) OnTradeDetected(queue string, handler func(TradeDetected)) (*nats.Subscription, error) {
-	return s.nc.QueueSubscribe(SubjectTradeDetected, queue, func(msg *nats.Msg) {
-		var td TradeDetected
-		if err := json.Unmarshal(msg.Data, &td); err != nil {
-			s.log.Warn("dropping undecodable trades.detected message", "err", err)
+// queueSubscribe is the shared body of the typed On* helpers: it JSON-decodes
+// each message into T and invokes handler, dropping undecodable messages (both
+// producer and consumer are first-party). A queue group lets multiple instances
+// share the load. (A free function, not a method, since Go methods can't be
+// generic.)
+func queueSubscribe[T any](s *Subscriber, subject, queue, kind string, handler func(T)) (*nats.Subscription, error) {
+	return s.nc.QueueSubscribe(subject, queue, func(msg *nats.Msg) {
+		var v T
+		if err := json.Unmarshal(msg.Data, &v); err != nil {
+			s.log.Warn("dropping undecodable "+kind+" message", "err", err)
 			return
 		}
-		handler(td)
+		handler(v)
 	})
+}
+
+// OnTradeDetected invokes handler for each TradeDetected on SubjectTradeDetected.
+func (s *Subscriber) OnTradeDetected(queue string, handler func(TradeDetected)) (*nats.Subscription, error) {
+	return queueSubscribe(s, SubjectTradeDetected, queue, "trades.detected", handler)
 }
 
 // OnConsensus invokes handler for each ConsensusSignal on SubjectConsensusSignal.
 func (s *Subscriber) OnConsensus(queue string, handler func(ConsensusSignal)) (*nats.Subscription, error) {
-	return s.nc.QueueSubscribe(SubjectConsensusSignal, queue, func(msg *nats.Msg) {
-		var c ConsensusSignal
-		if err := json.Unmarshal(msg.Data, &c); err != nil {
-			s.log.Warn("dropping undecodable consensus.signal message", "err", err)
-			return
-		}
-		handler(c)
-	})
+	return queueSubscribe(s, SubjectConsensusSignal, queue, "consensus.signal", handler)
 }
 
 // OnOrderProposed invokes handler for each OrderProposal on SubjectOrderProposed.
 func (s *Subscriber) OnOrderProposed(queue string, handler func(OrderProposal)) (*nats.Subscription, error) {
-	return s.nc.QueueSubscribe(SubjectOrderProposed, queue, func(msg *nats.Msg) {
-		var p OrderProposal
-		if err := json.Unmarshal(msg.Data, &p); err != nil {
-			s.log.Warn("dropping undecodable orders.proposed message", "err", err)
-			return
-		}
-		handler(p)
-	})
+	return queueSubscribe(s, SubjectOrderProposed, queue, "orders.proposed", handler)
 }
 
 // OnOrderApproved invokes handler for each approved OrderDecision.
 func (s *Subscriber) OnOrderApproved(queue string, handler func(OrderDecision)) (*nats.Subscription, error) {
-	return s.nc.QueueSubscribe(SubjectOrderApproved, queue, func(msg *nats.Msg) {
-		var d OrderDecision
-		if err := json.Unmarshal(msg.Data, &d); err != nil {
-			s.log.Warn("dropping undecodable orders.approved message", "err", err)
-			return
-		}
-		handler(d)
-	})
+	return queueSubscribe(s, SubjectOrderApproved, queue, "orders.approved", handler)
 }
 
 // OnControl invokes handler for each control.halt message. It uses a plain

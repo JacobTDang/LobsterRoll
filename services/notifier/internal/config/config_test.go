@@ -23,8 +23,8 @@ func TestLoad_Defaults(t *testing.T) {
 
 func TestLoad_Overrides(t *testing.T) {
 	cfg, err := Load(env(map[string]string{
-		"TELEGRAM_BOT_TOKEN":   "tok",
-		"TELEGRAM_CHAT_ID":     "42",
+		"TELEGRAM_BOT_TOKEN":    "tok",
+		"TELEGRAM_CHAT_ID":      "42",
 		"TELEGRAM_BASE_URL":     "http://localhost:8099",
 		"NATS_URL":              "nats://localhost:4222",
 		"ENRICHMENT_GRPC_ADDR":  "localhost:50052",

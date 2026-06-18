@@ -1,4 +1,4 @@
-package seen
+package dedup
 
 import (
 	"fmt"
@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-func TestSet_Add(t *testing.T) {
-	s := New()
+func TestGenSet_Add(t *testing.T) {
+	s := NewGen()
 	if !s.Add("a") {
 		t.Error("first Add should be true (new)")
 	}
@@ -22,8 +22,8 @@ func TestSet_Add(t *testing.T) {
 	}
 }
 
-func TestSet_Bounded(t *testing.T) {
-	s := NewSized(3)
+func TestGenSet_Bounded(t *testing.T) {
+	s := newGenSized(3)
 	// Add many distinct keys; Len must never exceed 2*max.
 	for i := 0; i < 100; i++ {
 		s.Add(fmt.Sprintf("k%d", i))
@@ -38,8 +38,8 @@ func TestSet_Bounded(t *testing.T) {
 	}
 }
 
-func TestSet_Race(t *testing.T) {
-	s := New()
+func TestGenSet_Race(t *testing.T) {
+	s := NewGen()
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
 		wg.Add(1)

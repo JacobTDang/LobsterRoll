@@ -1,7 +1,8 @@
-// Package dedup is a small time-bounded set: a key is "seen" for a TTL after it
-// is added, so the notifier suppresses duplicate alerts (the watcher is
-// at-least-once and can re-emit a trade). Memory is bounded by the TTL via a
-// periodic sweep of expired keys.
+// Package dedup provides small concurrent "have I seen this key" sets used to
+// suppress duplicate work when an upstream is at-least-once. Two eviction
+// strategies are available: TTLSet expires keys after a time-to-live (with a
+// Remove for failure rollback); GenSet bounds memory by key count via a
+// two-generation rotation (no clock).
 package dedup
 
 import (

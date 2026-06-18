@@ -15,7 +15,7 @@ import (
 
 	lobsterrollv1 "github.com/JacobTDang/LobsterRoll/gen/go"
 	"github.com/JacobTDang/LobsterRoll/pkg/bus"
-	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/dedup"
+	"github.com/JacobTDang/LobsterRoll/pkg/dedup"
 )
 
 type fakeEnricher struct {

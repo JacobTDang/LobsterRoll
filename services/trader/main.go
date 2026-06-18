@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"log/slog"
-	"time"
 
 	"github.com/JacobTDang/LobsterRoll/pkg/bus"
 	"github.com/JacobTDang/LobsterRoll/pkg/svc"
@@ -66,7 +65,7 @@ func run(ctx context.Context, log *slog.Logger) error {
 	}
 	// Approved orders execute.
 	if _, err := sub.OnOrderApproved(cfg.QueueGroup, func(d bus.OrderDecision) {
-		mctx, cancel := detached(ctx)
+		mctx, cancel := svc.Detached(ctx)
 		defer cancel()
 		h.OnApproved(mctx, d)
 	}); err != nil {
@@ -74,7 +73,7 @@ func run(ctx context.Context, log *slog.Logger) error {
 	}
 	// Proposals auto-execute only when the policy doesn't require approval.
 	if _, err := sub.OnOrderProposed(cfg.QueueGroup, func(p bus.OrderProposal) {
-		mctx, cancel := detached(ctx)
+		mctx, cancel := svc.Detached(ctx)
 		defer cancel()
 		h.OnProposed(mctx, p)
 	}); err != nil {
@@ -84,10 +83,4 @@ func run(ctx context.Context, log *slog.Logger) error {
 	log.Info("trader executing (sole key holder; caps + halt enforced)")
 	<-ctx.Done()
 	return nil
-}
-
-// detached gives in-flight execution a bounded context divorced from shutdown
-// cancellation so a placement completes during drain.
-func detached(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 }
