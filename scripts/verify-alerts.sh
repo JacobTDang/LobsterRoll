@@ -12,10 +12,14 @@ pids=()
 cleanup() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; wait 2>/dev/null || true; }
 trap cleanup EXIT
 
-echo ">> building"; make build >/dev/null && go build ./tools/...
+# Build real binaries (not `go run`, whose child orphans past the trap) and clear
+# any stragglers from a prior run so ports are free.
+echo ">> building"; make build >/dev/null
+for t in natsd mocktelegram injecttrade; do go build -o "bin/$t" "./tools/$t"; done
+pkill -f 'bin/natsd' 2>/dev/null || true; pkill -f 'bin/mocktelegram' 2>/dev/null || true; sleep 1
 
-go run ./tools/natsd -port 4222 >.local/natsd.log 2>&1 & pids+=($!)
-go run ./tools/mocktelegram -addr :8099 -out "$ALERTS" >.local/mocktg.log 2>&1 & pids+=($!)
+./bin/natsd -port 4222 >.local/natsd.log 2>&1 & pids+=($!)
+./bin/mocktelegram -addr :8099 -out "$ALERTS" >.local/mocktg.log 2>&1 & pids+=($!)
 sleep 2
 
 ENRICHMENT_GRPC_ADDR=":50052" ENRICHMENT_DB_PATH=.local/verify-enr.db ./bin/enrichment >.local/enr.log 2>&1 & pids+=($!)
@@ -26,7 +30,7 @@ TELEGRAM_BASE_URL="http://localhost:8099" TELEGRAM_BOT_TOKEN="test" TELEGRAM_CHA
 sleep 2
 
 echo ">> injecting synthetic trade"
-go run ./tools/injecttrade -nats nats://localhost:4222 >/dev/null 2>&1
+./bin/injecttrade -nats nats://localhost:4222 >/dev/null 2>&1
 
 # Wait up to 15s for the mock Telegram to record an alert.
 for _ in $(seq 1 30); do

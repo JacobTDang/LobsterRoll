@@ -12,15 +12,22 @@ mkdir -p .local
 ALERTS=.local/consensus-alerts.log
 : > "$ALERTS"
 NURL="nats://localhost:4223"
+# Fresh consensus DB each run: otherwise the prior run's in-window cohort + fired
+# high-water mark correctly suppress a re-fire for the same wallets/token.
+rm -f .local/c-consensus.db .local/c-consensus.db-wal .local/c-consensus.db-shm
 
 pids=()
 cleanup() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; wait 2>/dev/null || true; }
 trap cleanup EXIT
 
-echo ">> building"; make build >/dev/null && go build ./tools/...
+# Build real binaries (not `go run`, whose child orphans past the trap) and clear
+# any stragglers from a prior run so ports are free.
+echo ">> building"; make build >/dev/null
+for t in natsd mocktelegram injecttrade; do go build -o "bin/$t" "./tools/$t"; done
+pkill -f 'bin/natsd' 2>/dev/null || true; pkill -f 'bin/mocktelegram' 2>/dev/null || true; sleep 1
 
-go run ./tools/natsd -port 4223 >.local/c-natsd.log 2>&1 & pids+=($!)
-go run ./tools/mocktelegram -addr :8098 -out "$ALERTS" >.local/c-mocktg.log 2>&1 & pids+=($!)
+./bin/natsd -port 4223 >.local/c-natsd.log 2>&1 & pids+=($!)
+./bin/mocktelegram -addr :8098 -out "$ALERTS" >.local/c-mocktg.log 2>&1 & pids+=($!)
 sleep 2
 
 ENRICHMENT_GRPC_ADDR=":50062" ENRICHMENT_DB_PATH=.local/c-enr.db ./bin/enrichment >.local/c-enr.log 2>&1 & pids+=($!)
@@ -34,7 +41,7 @@ TELEGRAM_BASE_URL="http://localhost:8098" TELEGRAM_BOT_TOKEN="test" TELEGRAM_CHA
 sleep 2
 
 echo ">> injecting 3 distinct-wallet trades on the same token+side"
-go run ./tools/injecttrade -nats "$NURL" -n 3 -side buy >/dev/null 2>&1
+./bin/injecttrade -nats "$NURL" -n 3 -side buy >/dev/null 2>&1
 
 # Wait up to 15s for a CONSENSUS alert.
 for _ in $(seq 1 30); do
