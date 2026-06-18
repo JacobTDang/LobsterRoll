@@ -44,6 +44,20 @@ func FormatAlert(td bus.TradeDetected, m Market) string {
 	return b.String()
 }
 
+// FormatProposal renders an order proposal awaiting approval.
+func FormatProposal(p bus.OrderProposal) string {
+	label := "SELL"
+	if strings.EqualFold(p.Side, "buy") {
+		label = "BUY"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "📋 Mirror %s  $%.2f @ ≤ $%s\n", label, p.SizeUSD, p.LimitPrice)
+	fmt.Fprintf(&b, "token %s\n", shortenMiddle(p.TokenID, 4, 4))
+	fmt.Fprintf(&b, "whale %s filled %s @ $%s\n", shortenHex(p.SourceTrade.Wallet), p.SourceTrade.Size, p.SourceTrade.Price)
+	b.WriteString("Approve?")
+	return b.String()
+}
+
 // notional returns size*price formatted to 2 decimals (USDC); "?" if unparsable.
 func notional(size, price string) string {
 	s, ok1 := new(big.Rat).SetString(size)

@@ -7,6 +7,22 @@ import (
 	"github.com/JacobTDang/LobsterRoll/pkg/bus"
 )
 
+func TestFormatProposal(t *testing.T) {
+	p := bus.OrderProposal{
+		ID: "prop-1", TokenID: "25960997961246252830800085989836468476752301777787246680725159102517868182787",
+		Side: "buy", LimitPrice: "0.98", SizeUSD: 25,
+		SourceTrade: bus.TradeDetected{Wallet: "0x037c0f46600702e77ccb738721a78d6418d3a458", Size: "5.76", Price: "0.95"},
+	}
+	got := FormatProposal(p)
+	want := "📋 Mirror BUY  $25.00 @ ≤ $0.98\n" +
+		"token 2596…2787\n" +
+		"whale 0x037c…a458 filled 5.76 @ $0.95\n" +
+		"Approve?"
+	if got != want {
+		t.Fatalf("\n got: %q\nwant: %q", got, want)
+	}
+}
+
 func TestFormatAlert_Buy(t *testing.T) {
 	td := bus.TradeDetected{
 		Wallet:  "0x037c0f46600702e77ccb738721a78d6418d3a458",
