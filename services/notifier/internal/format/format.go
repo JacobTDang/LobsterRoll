@@ -14,6 +14,9 @@ type Market struct {
 	Question string
 	Outcome  string
 	Found    bool
+	// LookupFailed distinguishes a transient enrichment failure (couldn't look
+	// up) from a genuinely unknown token, so the alert isn't mislabeled.
+	LookupFailed bool
 }
 
 // FormatAlert renders a one-way alert for a detected trade.
@@ -24,9 +27,12 @@ func FormatAlert(td bus.TradeDetected, m Market) string {
 	}
 
 	var market string
-	if m.Found {
+	switch {
+	case m.Found:
 		market = fmt.Sprintf("%s — %s", m.Question, m.Outcome)
-	} else {
+	case m.LookupFailed:
+		market = fmt.Sprintf("Market lookup unavailable (token %s)", shortenMiddle(td.TokenID, 4, 4))
+	default:
 		market = fmt.Sprintf("Unknown market (token %s)", shortenMiddle(td.TokenID, 4, 4))
 	}
 
@@ -56,10 +62,11 @@ func shortenHex(addr string) string {
 	return addr[:6] + "…" + addr[len(addr)-4:]
 }
 
-// shortenMiddle keeps the first and last n runes of a long id.
+// shortenMiddle keeps the first head and last tail runes of a long id.
 func shortenMiddle(s string, head, tail int) string {
-	if len(s) <= head+tail+1 {
+	r := []rune(s)
+	if len(r) <= head+tail+1 {
 		return s
 	}
-	return s[:head] + "…" + s[len(s)-tail:]
+	return string(r[:head]) + "…" + string(r[len(r)-tail:])
 }

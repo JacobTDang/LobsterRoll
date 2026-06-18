@@ -41,7 +41,7 @@ func (s *fakeSender) Send(_ context.Context, chatID, text string) error {
 func quiet() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
 var trade = bus.TradeDetected{
-	Wallet: "0x037c0f46600702e77ccb738721a78d6418d3a458",
+	Wallet:  "0x037c0f46600702e77ccb738721a78d6418d3a458",
 	TokenID: "2596", Side: "buy", Price: "0.95", Size: "5.76",
 	TxHash: "0x7ccd161ea4de1234567890abcdef1234567890abcdef1234567890abcdef1234",
 }
@@ -74,7 +74,20 @@ func TestHandle_EnrichmentNotFound_StillAlerts(t *testing.T) {
 		t.Fatalf("send calls = %d, want 1 (degrade gracefully)", snd.calls)
 	}
 	if !strings.Contains(snd.text, "Unknown market") {
-		t.Errorf("text should note unknown market: %q", snd.text)
+		t.Errorf("NotFound should say unknown market: %q", snd.text)
+	}
+}
+
+func TestHandle_EnrichmentTransient_LookupUnavailable(t *testing.T) {
+	enr := fakeEnricher{err: status.Error(codes.Unavailable, "enrichment down")}
+	snd := &fakeSender{}
+	New(enr, snd, "1", quiet()).Handle(context.Background(), trade)
+
+	if snd.calls != 1 {
+		t.Fatalf("send calls = %d, want 1 (still alerts)", snd.calls)
+	}
+	if !strings.Contains(snd.text, "lookup unavailable") {
+		t.Errorf("transient error should say lookup unavailable, not unknown market: %q", snd.text)
 	}
 }
 

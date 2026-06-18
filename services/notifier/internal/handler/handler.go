@@ -8,6 +8,8 @@ import (
 	"log/slog"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	lobsterrollv1 "github.com/JacobTDang/LobsterRoll/gen/go"
 	"github.com/JacobTDang/LobsterRoll/pkg/bus"
@@ -45,10 +47,14 @@ func (h *Handler) Handle(ctx context.Context, td bus.TradeDetected) {
 	if td.TokenID != "" {
 		resp, err := h.enrich.EnrichToken(ctx, &lobsterrollv1.EnrichTokenRequest{TokenId: td.TokenID})
 		switch {
-		case err != nil:
-			h.log.Warn("enrichment failed; alerting without market", "token", td.TokenID, "err", err)
-		default:
+		case err == nil:
 			market = format.Market{Question: resp.GetMarketQuestion(), Outcome: resp.GetOutcome(), Found: true}
+		case status.Code(err) == codes.NotFound:
+			// Genuinely unknown token — alert as "Unknown market".
+		default:
+			// Transient failure (enrichment down, timeout): don't mislabel as unknown.
+			h.log.Warn("enrichment lookup failed; alerting without market", "token", td.TokenID, "err", err)
+			market = format.Market{LookupFailed: true}
 		}
 	}
 

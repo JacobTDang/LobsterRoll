@@ -1,6 +1,7 @@
 package format
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/JacobTDang/LobsterRoll/pkg/bus"
@@ -8,9 +9,9 @@ import (
 
 func TestFormatAlert_Buy(t *testing.T) {
 	td := bus.TradeDetected{
-		Wallet: "0x037c0f46600702e77ccb738721a78d6418d3a458",
+		Wallet:  "0x037c0f46600702e77ccb738721a78d6418d3a458",
 		TokenID: "25960997961246252830800085989836468476752301777787246680725159102517868182787",
-		Side: "buy", Price: "0.95", Size: "5.76",
+		Side:    "buy", Price: "0.95", Size: "5.76",
 		TxHash: "0x7ccd161ea4de1234567890abcdef1234567890abcdef1234567890abcdef1234",
 	}
 	got := FormatAlert(td, Market{Question: "Ghana vs. Panama: O/U 2.5", Outcome: "Over", Found: true})
@@ -39,11 +40,24 @@ func TestFormatAlert_Sell(t *testing.T) {
 	}
 }
 
+func TestFormatAlert_LookupUnavailable(t *testing.T) {
+	td := bus.TradeDetected{
+		Wallet:  "0x037c0f46600702e77ccb738721a78d6418d3a458",
+		TokenID: "25960997961246252830800085989836468476752301777787246680725159102517868182787",
+		Side:    "buy", Price: "0.5", Size: "10",
+		TxHash: "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+	}
+	got := FormatAlert(td, Market{LookupFailed: true})
+	if !strings.Contains(got, "Market lookup unavailable (token 2596…2787)") {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestFormatAlert_UnknownMarket(t *testing.T) {
 	td := bus.TradeDetected{
-		Wallet: "0x037c0f46600702e77ccb738721a78d6418d3a458",
+		Wallet:  "0x037c0f46600702e77ccb738721a78d6418d3a458",
 		TokenID: "25960997961246252830800085989836468476752301777787246680725159102517868182787",
-		Side: "buy", Price: "0.5", Size: "10",
+		Side:    "buy", Price: "0.5", Size: "10",
 		TxHash: "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
 	}
 	got := FormatAlert(td, Market{Found: false})

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 )
 
@@ -43,6 +44,26 @@ func TestSend_APIError(t *testing.T) {
 	err := New(srv.URL, "T", srv.Client()).Send(context.Background(), "1", "x")
 	if err == nil {
 		t.Fatal("expected error on ok:false")
+	}
+}
+
+func TestSend_RetriesOn429(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if atomic.AddInt32(&hits, 1) == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"ok":false,"description":"Too Many Requests","parameters":{"retry_after":0}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	if err := New(srv.URL, "T", srv.Client()).Send(context.Background(), "1", "x"); err != nil {
+		t.Fatalf("Send should succeed after a 429 retry: %v", err)
+	}
+	if h := atomic.LoadInt32(&hits); h != 2 {
+		t.Errorf("hits = %d, want 2 (429 then 200)", h)
 	}
 }
 
