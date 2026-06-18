@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nats-io/nats.go"
 	natsserver "github.com/nats-io/nats-server/v2/test"
+	"github.com/nats-io/nats.go"
 )
 
 func runServer(t *testing.T) string {

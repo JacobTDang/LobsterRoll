@@ -3,6 +3,7 @@ package bus
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -10,12 +11,16 @@ import (
 
 // Subscriber consumes event-pipeline messages from NATS.
 type Subscriber struct {
-	nc *nats.Conn
+	nc  *nats.Conn
+	log *slog.Logger
 }
 
 // NewSubscriber dials NATS at url. Like Connect, it fails fast on startup and
-// reconnects indefinitely once connected.
-func NewSubscriber(url string) (*Subscriber, error) {
+// reconnects indefinitely once connected. If log is nil, slog.Default() is used.
+func NewSubscriber(url string, log *slog.Logger) (*Subscriber, error) {
+	if log == nil {
+		log = slog.Default()
+	}
 	nc, err := nats.Connect(url,
 		nats.MaxReconnects(-1),
 		nats.ReconnectWait(2*time.Second),
@@ -24,7 +29,7 @@ func NewSubscriber(url string) (*Subscriber, error) {
 	if err != nil {
 		return nil, fmt.Errorf("nats connect %q: %w", url, err)
 	}
-	return &Subscriber{nc: nc}, nil
+	return &Subscriber{nc: nc, log: log}, nil
 }
 
 // OnTradeDetected invokes handler for each TradeDetected on SubjectTradeDetected.
@@ -34,6 +39,7 @@ func (s *Subscriber) OnTradeDetected(queue string, handler func(TradeDetected)) 
 	return s.nc.QueueSubscribe(SubjectTradeDetected, queue, func(msg *nats.Msg) {
 		var td TradeDetected
 		if err := json.Unmarshal(msg.Data, &td); err != nil {
+			s.log.Warn("dropping undecodable trades.detected message", "err", err)
 			return
 		}
 		handler(td)

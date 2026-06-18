@@ -46,7 +46,7 @@ func TestPipeline_EndToEnd(t *testing.T) {
 	enr := fakeEnricher{resp: &lobsterrollv1.EnrichTokenResponse{MarketQuestion: "Will it rain?", Outcome: "Yes"}}
 	h := New(enr, tg, "555", quiet())
 
-	sub, err := bus.NewSubscriber(url)
+	sub, err := bus.NewSubscriber(url, nil)
 	if err != nil {
 		t.Fatalf("NewSubscriber: %v", err)
 	}

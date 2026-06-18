@@ -8,7 +8,7 @@ import (
 func TestSubscriber_OnTradeDetected(t *testing.T) {
 	url := runServer(t) // helper from publish_test.go
 
-	sub, err := NewSubscriber(url)
+	sub, err := NewSubscriber(url, nil)
 	if err != nil {
 		t.Fatalf("NewSubscriber: %v", err)
 	}

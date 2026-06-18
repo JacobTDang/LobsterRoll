@@ -37,7 +37,7 @@ func TestPipeline_EndToEnd(t *testing.T) {
 		t.Fatalf("publisher connect: %v", err)
 	}
 	defer pub.Close()
-	sub, err := bus.NewSubscriber(url)
+	sub, err := bus.NewSubscriber(url, nil)
 	if err != nil {
 		t.Fatalf("subscriber connect: %v", err)
 	}

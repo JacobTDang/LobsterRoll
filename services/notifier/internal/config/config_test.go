@@ -18,11 +18,11 @@ func TestLoad_Defaults(t *testing.T) {
 
 func TestLoad_Overrides(t *testing.T) {
 	cfg, err := Load(env(map[string]string{
-		"TELEGRAM_BOT_TOKEN":    "tok",
-		"TELEGRAM_CHAT_ID":      "42",
-		"NATS_URL":              "nats://localhost:4222",
-		"ENRICHMENT_GRPC_ADDR":  "localhost:50052",
-		"NOTIFIER_QUEUE_GROUP":  "n2",
+		"TELEGRAM_BOT_TOKEN":   "tok",
+		"TELEGRAM_CHAT_ID":     "42",
+		"NATS_URL":             "nats://localhost:4222",
+		"ENRICHMENT_GRPC_ADDR": "localhost:50052",
+		"NOTIFIER_QUEUE_GROUP": "n2",
 	}))
 	if err != nil {
 		t.Fatalf("Load: %v", err)

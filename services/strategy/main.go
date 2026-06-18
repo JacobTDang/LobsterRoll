@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/JacobTDang/LobsterRoll/pkg/bus"
 	"github.com/JacobTDang/LobsterRoll/pkg/svc"
@@ -30,7 +31,7 @@ func run(ctx context.Context, log *slog.Logger) error {
 		return err
 	}
 	defer pub.Close()
-	sub, err := bus.NewSubscriber(cfg.NATSURL)
+	sub, err := bus.NewSubscriber(cfg.NATSURL, log)
 	if err != nil {
 		return err
 	}
@@ -40,7 +41,11 @@ func run(ctx context.Context, log *slog.Logger) error {
 	h := handler.New(src, pub, cfg.Policy, cfg.Allowlist, log)
 
 	if _, err := sub.OnTradeDetected(cfg.QueueGroup, func(td bus.TradeDetected) {
-		h.Handle(ctx, td)
+		// Detach from the shutdown-cancelled ctx (bounded) so a proposal in flight
+		// at SIGTERM still completes during drain.
+		mctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		h.Handle(mctx, td)
 	}); err != nil {
 		return err
 	}

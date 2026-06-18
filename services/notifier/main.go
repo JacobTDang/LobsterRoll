@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -36,7 +37,7 @@ func run(ctx context.Context, log *slog.Logger) error {
 
 	// Telegram + NATS.
 	tg := telegram.New(telegram.DefaultBaseURL, cfg.TelegramToken, nil)
-	sub, err := bus.NewSubscriber(cfg.NATSURL)
+	sub, err := bus.NewSubscriber(cfg.NATSURL, log)
 	if err != nil {
 		return err
 	}
@@ -44,7 +45,12 @@ func run(ctx context.Context, log *slog.Logger) error {
 
 	h := handler.New(enrich, tg, cfg.TelegramChatID, log)
 	if _, err := sub.OnTradeDetected(cfg.QueueGroup, func(td bus.TradeDetected) {
-		h.Handle(ctx, td)
+		// Detach from the shutdown-cancelled ctx (but keep a bound) so an alert
+		// in flight when SIGTERM arrives still gets enriched and delivered during
+		// the subscriber's drain.
+		mctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		h.Handle(mctx, td)
 	}); err != nil {
 		return err
 	}
