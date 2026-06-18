@@ -3,18 +3,23 @@ package main
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
 	lobsterrollv1 "github.com/JacobTDang/LobsterRoll/gen/go"
 	"github.com/JacobTDang/LobsterRoll/pkg/bus"
 	"github.com/JacobTDang/LobsterRoll/pkg/svc"
+	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/approval"
 	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/config"
 	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/handler"
 	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/telegram"
 )
+
+const longPollSec = 5
 
 func main() {
 	svc.Run("notifier", run)
@@ -27,7 +32,6 @@ func run(ctx context.Context, log *slog.Logger) error {
 	}
 	log.Info("config loaded", "nats", cfg.NATSURL, "enrichment", cfg.EnrichmentAddr, "chat", cfg.TelegramChatID)
 
-	// Enrichment gRPC client.
 	conn, err := grpc.NewClient(cfg.EnrichmentAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return err
@@ -35,27 +39,80 @@ func run(ctx context.Context, log *slog.Logger) error {
 	defer conn.Close()
 	enrich := lobsterrollv1.NewEnrichmentClient(conn)
 
-	// Telegram + NATS.
 	tg := telegram.New(telegram.DefaultBaseURL, cfg.TelegramToken, nil)
+	pub, err := bus.Connect(cfg.NATSURL)
+	if err != nil {
+		return err
+	}
+	defer pub.Close()
 	sub, err := bus.NewSubscriber(cfg.NATSURL, log)
 	if err != nil {
 		return err
 	}
 	defer sub.Close()
 
-	h := handler.New(enrich, tg, cfg.TelegramChatID, log)
+	alerts := handler.New(enrich, tg, cfg.TelegramChatID, log)
+	mgr := approval.New(tg, pub, cfg.TelegramChatID, log)
+
+	// One-way alerts on every detected trade.
 	if _, err := sub.OnTradeDetected(cfg.QueueGroup, func(td bus.TradeDetected) {
-		// Detach from the shutdown-cancelled ctx (but keep a bound) so an alert
-		// in flight when SIGTERM arrives still gets enriched and delivered during
-		// the subscriber's drain.
-		mctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		mctx, cancel := detached(ctx)
 		defer cancel()
-		h.Handle(mctx, td)
+		alerts.Handle(mctx, td)
+	}); err != nil {
+		return err
+	}
+	// Two-way: post each proposal with approve/reject buttons.
+	if _, err := sub.OnOrderProposed(cfg.QueueGroup, func(p bus.OrderProposal) {
+		mctx, cancel := detached(ctx)
+		defer cancel()
+		mgr.OnProposal(mctx, p)
 	}); err != nil {
 		return err
 	}
 
-	log.Info("notifier listening for trades.detected")
-	<-ctx.Done()
-	return nil
+	g, ctx := errgroup.WithContext(ctx)
+	g.Go(func() error { return pollUpdates(ctx, tg, mgr, log) })
+	log.Info("notifier listening (alerts + approval gate)")
+	return g.Wait()
+}
+
+// pollUpdates long-polls Telegram and dispatches button taps and commands.
+func pollUpdates(ctx context.Context, tg *telegram.Client, mgr *approval.Manager, log *slog.Logger) error {
+	offset := 0
+	for {
+		if ctx.Err() != nil {
+			return nil
+		}
+		ups, err := tg.GetUpdates(ctx, offset, longPollSec)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			log.Warn("getUpdates failed", "err", err)
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(2 * time.Second):
+			}
+			continue
+		}
+		for _, u := range ups {
+			if u.UpdateID >= offset {
+				offset = u.UpdateID + 1
+			}
+			switch {
+			case u.CallbackQuery != nil:
+				mgr.HandleCallback(ctx, *u.CallbackQuery)
+			case u.Message != nil && strings.HasPrefix(u.Message.Text, "/"):
+				mgr.HandleCommand(ctx, u.Message.Text, u.Message.From.Username)
+			}
+		}
+	}
+}
+
+// detached returns a bounded context divorced from shutdown cancellation so an
+// in-flight Telegram round-trip completes during the subscriber's drain.
+func detached(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 }
