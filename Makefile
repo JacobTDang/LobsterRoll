@@ -3,9 +3,27 @@ REGISTRY  ?= ghcr.io/jacobtdang
 TAG       ?= dev
 PLATFORMS ?= linux/amd64,linux/arm64
 
-.PHONY: all proto build test test-race vet lint tidy docker buildx k3d-up k3d-down deploy clean
+.PHONY: all proto build test test-race vet lint tidy docker buildx k3d-up k3d-down deploy clean run-local natsd inject-trade
 
 all: test build
+
+# Local dev: read + alert + approve pipeline (NO execution). Safe from the US.
+run-local:
+	bash scripts/run-local.sh
+
+# Standalone in-process NATS (no docker): make natsd
+natsd:
+	go run ./tools/natsd
+
+# Publish a synthetic trade to exercise the alert/approval path:
+#   make inject-trade ARGS="-side sell -size 12 -price 0.42"
+inject-trade:
+	go run ./tools/injecttrade $(ARGS)
+
+# Derive Polymarket L2 API creds from TRADER_PRIVATE_KEY (geofenced for US):
+#   TRADER_PRIVATE_KEY=... make trader-keys
+trader-keys:
+	go run ./tools/deriveapikeys $(ARGS)
 
 tidy:
 	go mod tidy
