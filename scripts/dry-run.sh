@@ -36,6 +36,7 @@ sleep 2
 # approve-reject messages, which are only useful for live trading. A dry run is
 # alerts-only, so we skip it to keep one clean message per trade.
 start consensus "CONSENSUS_DB_PATH=.local/dry-consensus.db NATS_URL=$NATS_URL" ./bin/consensus
+start pricewatch "NATS_URL=$NATS_URL PRICEWATCH_DB_PATH=.local/dry-pricewatch.db PRICEWATCH_POLL_INTERVAL=2m" ./bin/pricewatch
 start notifier "TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID=$TELEGRAM_CHAT_ID ENRICHMENT_GRPC_ADDR=localhost:50052 LEADERBOARD_GRPC_ADDR=localhost:50051 NATS_URL=$NATS_URL" ./bin/notifier
 
 if [ -n "${RPC_WSS_URL:-}" ]; then

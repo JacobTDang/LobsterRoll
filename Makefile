@@ -1,4 +1,4 @@
-SERVICES := leaderboard watcher enrichment strategy trader notifier consensus
+SERVICES := leaderboard watcher enrichment strategy trader notifier consensus pricewatch
 REGISTRY  ?= ghcr.io/jacobtdang
 TAG       ?= dev
 PLATFORMS ?= linux/amd64,linux/arm64

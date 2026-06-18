@@ -5,7 +5,7 @@
 # when those are available.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-SERVICES="leaderboard watcher enrichment strategy trader notifier consensus"
+SERVICES="leaderboard watcher enrichment strategy trader notifier consensus pricewatch"
 TAG="${TAG:-dev}"
 
 have() { command -v "$1" >/dev/null 2>&1; }

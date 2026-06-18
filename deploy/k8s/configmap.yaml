@@ -15,7 +15,7 @@ data:
   # ---- enrichment ----
   ENRICHMENT_CACHE_TTL: "24h" # re-fetch cached market metadata older than this (0 = never)
 
-  # ---- leaderboard: track top-30 consistent winners, refresh daily ----
+  # ---- leaderboard: track top consistent winners, refresh daily ----
   LEADERBOARD_WINDOW: "30d"
   LEADERBOARD_METRIC: "pnl"
   LEADERBOARD_TOP_N: "30" # max tracked; strict gates below may yield fewer
@@ -25,11 +25,16 @@ data:
   STATS_MIN_PORTFOLIO_USD: "100000" # >=$100k portfolio
   STATS_MIN_RESOLVED: "20"          # >=20 resolved markets (so 90% is meaningful)
   STATS_MIN_REALIZED_PNL: "0"       # raise to require proven net profit
-  STATS_REQUIRE_FRESH: "true"     # drop cooling-off wallets from the watchset
-  SKILL_SHRINKAGE_K: "200"       # ~resolved markets before a wallet's own ROI outweighs the prior
+  STATS_REQUIRE_FRESH: "true"       # drop cooling-off wallets from the watchset
+  SKILL_SHRINKAGE_K: "200"          # ~resolved markets before a wallet's own ROI outweighs the prior
   CANDIDATE_TOPK: "50"
   STATS_MAX_CANDIDATES: "100"
   STATS_CONCURRENCY: "8"
+
+  # ---- pricewatch (live CLV capture) ----
+  PRICEWATCH_POLL_INTERVAL: "2m"  # snapshot every tracked token this often
+  PRICEWATCH_TOKEN_TTL: "48h"     # stop polling a token untraded this long (market resolved)
+  PRICEWATCH_RETENTION: "720h"    # prune price snapshots older than this (30d)
 
   # ---- consensus ----
   CONSENSUS_MIN_WALLETS: "3"

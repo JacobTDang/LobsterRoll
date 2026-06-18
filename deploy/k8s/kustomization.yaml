@@ -11,5 +11,6 @@ resources:
   - strategy.yaml
   - notifier.yaml
   - consensus.yaml
+  - pricewatch.yaml
   - trader.yaml # ships at replicas: 0 (gated)
   # Secrets are applied separately from deploy/k8s/secrets/ (gitignored).
