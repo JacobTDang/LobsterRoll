@@ -28,17 +28,3 @@ func TestCLV_SellIsInverted(t *testing.T) {
 		t.Errorf("CLV sell = %v, want -0.10", got)
 	}
 }
-
-func TestAverageAndBeatRate(t *testing.T) {
-	clvs := []float64{0.10, -0.05, 0.20, 0.0}
-	if got := Average(clvs); !approx(got, 0.0625) {
-		t.Errorf("Average = %v, want 0.0625", got)
-	}
-	// 0.0 is not strictly positive -> 2 of 4 beat.
-	if got := BeatRate(clvs); !approx(got, 0.5) {
-		t.Errorf("BeatRate = %v, want 0.5", got)
-	}
-	if Average(nil) != 0 || BeatRate(nil) != 0 {
-		t.Error("empty set should yield 0")
-	}
-}

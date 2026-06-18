@@ -15,30 +15,3 @@ func CLV(entry, close float64, buy bool) float64 {
 	}
 	return entry - close
 }
-
-// Average returns the mean CLV over a set of trades; 0 for an empty set.
-func Average(clvs []float64) float64 {
-	if len(clvs) == 0 {
-		return 0
-	}
-	var sum float64
-	for _, v := range clvs {
-		sum += v
-	}
-	return sum / float64(len(clvs))
-}
-
-// BeatRate returns the fraction of trades with strictly positive CLV (beat the
-// close); 0 for an empty set.
-func BeatRate(clvs []float64) float64 {
-	if len(clvs) == 0 {
-		return 0
-	}
-	var beat int
-	for _, v := range clvs {
-		if v > 0 {
-			beat++
-		}
-	}
-	return float64(beat) / float64(len(clvs))
-}
