@@ -29,6 +29,12 @@ type WalletCrawler interface {
 	Value(ctx context.Context, wallet string) (float64, error)
 }
 
+// Broadcaster publishes a watchset change to gRPC stream subscribers.
+// *server.Server satisfies it.
+type Broadcaster interface {
+	Broadcast(added, removed []string)
+}
+
 // StatsStorer persists computed stats and atomically replaces the watchset.
 // *store.Store satisfies it.
 type StatsStorer interface {

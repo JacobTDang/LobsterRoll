@@ -34,9 +34,12 @@ sleep 2
 echo ">> strategy"
 NATS_URL="$NATS_URL" ./bin/strategy & pids+=($!)
 
+echo ">> consensus (multiple tracked wallets converging on one bet)"
+CONSENSUS_DB_PATH=.local/consensus.db NATS_URL="$NATS_URL" ./bin/consensus & pids+=($!)
+
 if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
-  echo ">> notifier (Telegram alerts + approval)"
-  ENRICHMENT_GRPC_ADDR="localhost:50052" NATS_URL="$NATS_URL" ./bin/notifier & pids+=($!)
+  echo ">> notifier (Telegram alerts + approval + consensus)"
+  ENRICHMENT_GRPC_ADDR="localhost:50052" LEADERBOARD_GRPC_ADDR="localhost:50051" NATS_URL="$NATS_URL" ./bin/notifier & pids+=($!)
 else
   echo "!! notifier SKIPPED — set TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID in .env for phone alerts"
 fi
