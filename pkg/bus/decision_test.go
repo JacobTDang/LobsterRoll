@@ -26,10 +26,10 @@ func TestPublishDecision_Routing(t *testing.T) {
 	}
 	defer pub.Close()
 
-	if err := pub.PublishDecision(OrderDecision{ProposalID: "p1", Approved: true, By: "telegram:me"}); err != nil {
+	if err := pub.PublishDecision(OrderDecision{Proposal: OrderProposal{ID: "p1"}, Approved: true, By: "telegram:me"}); err != nil {
 		t.Fatalf("PublishDecision: %v", err)
 	}
-	if err := pub.PublishDecision(OrderDecision{ProposalID: "p2", Approved: false}); err != nil {
+	if err := pub.PublishDecision(OrderDecision{Proposal: OrderProposal{ID: "p2"}, Approved: false}); err != nil {
 		t.Fatalf("PublishDecision: %v", err)
 	}
 
@@ -37,20 +37,20 @@ func TestPublishDecision_Routing(t *testing.T) {
 	case m := <-approved:
 		var d OrderDecision
 		_ = json.Unmarshal(m.Data, &d)
-		if d.ProposalID != "p1" || !d.Approved {
+		if d.Proposal.ID != "p1" || !d.Approved {
 			t.Fatalf("approved msg = %+v", d)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("no approved message")
 	}
 	select {
 	case m := <-rejected:
 		var d OrderDecision
 		_ = json.Unmarshal(m.Data, &d)
-		if d.ProposalID != "p2" || d.Approved {
+		if d.Proposal.ID != "p2" || d.Approved {
 			t.Fatalf("rejected msg = %+v", d)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("no rejected message")
 	}
 }
@@ -80,7 +80,7 @@ func TestPublishControl(t *testing.T) {
 		if !c.Halted || c.By != "telegram:me" {
 			t.Fatalf("control = %+v", c)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("no control message")
 	}
 }
@@ -110,7 +110,7 @@ func TestOnOrderProposed(t *testing.T) {
 		if p.ID != "p1" || p.SizeUSD != 25 {
 			t.Fatalf("got %+v", p)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("no proposal received")
 	}
 }

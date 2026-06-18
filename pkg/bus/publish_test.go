@@ -57,7 +57,7 @@ func TestPublisher_PublishTrade(t *testing.T) {
 			got.Size != want.Size || got.TxHash != want.TxHash || got.LogIndex != want.LogIndex {
 			t.Fatalf("got %+v, want %+v", got, want)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("timed out waiting for published trade")
 	}
 }

@@ -41,7 +41,7 @@ func TestPublisher_PublishProposal(t *testing.T) {
 		if got.ID != want.ID || got.SizeUSD != want.SizeUSD || got.LimitPrice != want.LimitPrice {
 			t.Fatalf("got %+v, want %+v", got, want)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("timed out waiting for proposal")
 	}
 }

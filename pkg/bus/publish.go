@@ -55,6 +55,16 @@ func (p *Publisher) PublishControl(c ControlMsg) error {
 	return p.publishJSON(SubjectControlHalt, c)
 }
 
+// PublishResult publishes an execution result, routed to SubjectOrderFilled or
+// SubjectOrderFailed by r.Filled.
+func (p *Publisher) PublishResult(r OrderResult) error {
+	subject := SubjectOrderFailed
+	if r.Filled {
+		subject = SubjectOrderFilled
+	}
+	return p.publishJSON(subject, r)
+}
+
 func (p *Publisher) publishJSON(subject string, v any) error {
 	data, err := json.Marshal(v)
 	if err != nil {

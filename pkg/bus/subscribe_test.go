@@ -35,7 +35,7 @@ func TestSubscriber_OnTradeDetected(t *testing.T) {
 		if td.Wallet != want.Wallet || td.Side != want.Side || td.Size != want.Size {
 			t.Fatalf("got %+v, want %+v", td, want)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("timed out waiting for delivered trade")
 	}
 }

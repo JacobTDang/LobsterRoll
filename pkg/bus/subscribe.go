@@ -58,6 +58,35 @@ func (s *Subscriber) OnOrderProposed(queue string, handler func(OrderProposal)) 
 	})
 }
 
+// OnOrderApproved invokes handler for each approved OrderDecision.
+func (s *Subscriber) OnOrderApproved(queue string, handler func(OrderDecision)) (*nats.Subscription, error) {
+	return s.nc.QueueSubscribe(SubjectOrderApproved, queue, func(msg *nats.Msg) {
+		var d OrderDecision
+		if err := json.Unmarshal(msg.Data, &d); err != nil {
+			s.log.Warn("dropping undecodable orders.approved message", "err", err)
+			return
+		}
+		handler(d)
+	})
+}
+
+// OnControl invokes handler for each control.halt message. It uses a plain
+// (non-queue) subscription so every instance receives the kill switch.
+func (s *Subscriber) OnControl(handler func(ControlMsg)) (*nats.Subscription, error) {
+	return s.nc.Subscribe(SubjectControlHalt, func(msg *nats.Msg) {
+		var c ControlMsg
+		if err := json.Unmarshal(msg.Data, &c); err != nil {
+			s.log.Warn("dropping undecodable control.halt message", "err", err)
+			return
+		}
+		handler(c)
+	})
+}
+
+// Flush blocks until the server has processed all prior protocol messages
+// (e.g. subscriptions), so a publisher can be sure subscriptions are live.
+func (s *Subscriber) Flush() error { return s.nc.Flush() }
+
 // Close drains and closes the connection.
 func (s *Subscriber) Close() {
 	if s.nc != nil {

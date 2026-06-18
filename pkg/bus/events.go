@@ -27,11 +27,13 @@ type OrderProposal struct {
 	Reason      string        `json:"reason"`
 }
 
-// OrderDecision is published on SubjectOrderApproved/SubjectOrderRejected.
+// OrderDecision is published on SubjectOrderApproved/SubjectOrderRejected. It
+// carries the full proposal so the trader can execute an approved order without
+// a separate lookup.
 type OrderDecision struct {
-	ProposalID string `json:"proposal_id"`
-	Approved   bool   `json:"approved"`
-	By         string `json:"by"` // "telegram:<user>" or "auto"
+	Proposal OrderProposal `json:"proposal"`
+	Approved bool          `json:"approved"`
+	By       string        `json:"by"` // "telegram:<user>" or "auto"
 }
 
 // ControlMsg is published on SubjectControlHalt to halt or resume execution
