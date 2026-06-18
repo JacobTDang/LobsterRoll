@@ -3,7 +3,7 @@ REGISTRY  ?= ghcr.io/jacobtdang
 TAG       ?= dev
 PLATFORMS ?= linux/amd64,linux/arm64
 
-.PHONY: all proto build test test-race vet lint tidy docker buildx k3d-up k3d-down deploy clean run-local natsd inject-trade trader-keys verify-alerts verify-consensus tg-chatid images k8s-secrets redeploy k8s-status
+.PHONY: all proto build test test-race vet lint tidy docker buildx k3d-up k3d-down deploy clean run-local natsd inject-trade trader-keys verify-alerts verify-consensus tg-chatid images k8s-secrets redeploy k8s-status dry-run dry-stop dry-logs
 
 all: test build
 
@@ -33,6 +33,14 @@ verify-alerts:
 # Headless consensus check: injects a 3-wallet cohort and asserts a 🔥 CONSENSUS alert.
 verify-consensus:
 	bash scripts/verify-consensus.sh
+
+# All-day DRY RUN: detached read->alert pipeline (no trader). Alerts -> Telegram.
+dry-run:
+	bash scripts/dry-run.sh
+dry-stop:
+	bash scripts/dry-stop.sh
+dry-logs:
+	tail -n +1 -F .local/dry-*.log
 
 # Print your chat id (message your bot first):
 #   TELEGRAM_BOT_TOKEN=... make tg-chatid
