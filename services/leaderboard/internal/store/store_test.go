@@ -110,6 +110,25 @@ func TestStore_ReplaceAndList(t *testing.T) {
 	}
 }
 
+func TestStore_ReplaceEmptyIsNoOp(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	if _, err := s.Replace(ctx, []string{"0xa", "0xb"}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	// An empty replace must NOT wipe the watchset.
+	d, err := s.Replace(ctx, nil)
+	if err != nil {
+		t.Fatalf("Replace(nil): %v", err)
+	}
+	if !d.Empty() {
+		t.Fatalf("empty replace returned a diff: %+v", d)
+	}
+	if got := mustList(t, s); len(got) != 2 {
+		t.Fatalf("watchset = %v, want [0xa 0xb] preserved", got)
+	}
+}
+
 func TestStore_LastSync(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)

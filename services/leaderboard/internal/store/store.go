@@ -138,7 +138,14 @@ func (s *Store) List(ctx context.Context) ([]string, error) {
 
 // Replace sets the watchset to exactly wallets, applying the change atomically,
 // and returns the diff versus the previous contents.
+//
+// An empty input is refused as a no-op: a watchset wipe is never intended (a bad
+// upstream fetch must not clear everyone downstream). The syncer guards this too;
+// this is defense-in-depth so the invariant can't be bypassed.
 func (s *Store) Replace(ctx context.Context, wallets []string) (Delta, error) {
+	if len(wallets) == 0 {
+		return Delta{}, nil
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Delta{}, fmt.Errorf("begin tx: %w", err)
