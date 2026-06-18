@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: strategy
+  namespace: lobsterroll
+spec:
+  replicas: 1 # bounded in-memory seen-set is per-instance: keep at 1
+  selector:
+    matchLabels:
+      app: strategy
+  template:
+    metadata:
+      labels:
+        app: strategy
+    spec:
+      containers:
+        - name: strategy
+          image: lobsterroll/strategy:dev
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: lobsterroll-config # NATS_URL + EXECUTION_MODE + sizing/slippage
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "32Mi"
+            limits:
+              cpu: "250m"
+              memory: "128Mi"

@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: leaderboard-data
+  namespace: lobsterroll
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: leaderboard
+  namespace: lobsterroll
+spec:
+  replicas: 1 # SQLite single-writer: never scale > 1
+  strategy:
+    type: Recreate # avoid two pods on the same RWO volume
+  selector:
+    matchLabels:
+      app: leaderboard
+  template:
+    metadata:
+      labels:
+        app: leaderboard
+    spec:
+      containers:
+        - name: leaderboard
+          image: lobsterroll/leaderboard:dev
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: lobsterroll-config
+          env:
+            - name: LEADERBOARD_GRPC_ADDR # bind (overrides the dial value in the ConfigMap)
+              value: ":50051"
+            - name: LEADERBOARD_DB_PATH
+              value: /data/watchset.db
+          ports:
+            - containerPort: 50051
+          livenessProbe:
+            tcpSocket:
+              port: 50051
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: leaderboard-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: leaderboard
+  namespace: lobsterroll
+spec:
+  selector:
+    app: leaderboard
+  ports:
+    - port: 50051
+      targetPort: 50051

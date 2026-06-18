@@ -3,7 +3,7 @@ REGISTRY  ?= ghcr.io/jacobtdang
 TAG       ?= dev
 PLATFORMS ?= linux/amd64,linux/arm64
 
-.PHONY: all proto build test test-race vet lint tidy docker buildx k3d-up k3d-down deploy clean run-local natsd inject-trade trader-keys verify-alerts verify-consensus tg-chatid
+.PHONY: all proto build test test-race vet lint tidy docker buildx k3d-up k3d-down deploy clean run-local natsd inject-trade trader-keys verify-alerts verify-consensus tg-chatid images k8s-secrets redeploy k8s-status
 
 all: test build
 
@@ -75,8 +75,25 @@ k3d-up:
 k3d-down:
 	k3d cluster delete lobsterroll
 
+# Build all 7 service images and load them into the local cluster (docker-free
+# via ko on WSL; docker+k3d if available). See docs/DEPLOY.md.
+images:
+	bash scripts/k8s-images.sh
+
+# Apply your filled-in Secret (deploy/k8s/secrets/secret.yaml, gitignored).
+k8s-secrets:
+	kubectl apply -f deploy/k8s/secrets/secret.yaml
+
+# Apply all manifests (run `make k8s-secrets` first).
 deploy:
 	kubectl apply -k deploy/k8s
+
+# Build images + (re)deploy + restart so pods pick up new images.
+redeploy: images deploy
+	kubectl -n lobsterroll rollout restart deploy
+
+k8s-status:
+	kubectl -n lobsterroll get pods,svc,pvc
 
 clean:
 	rm -rf bin gen

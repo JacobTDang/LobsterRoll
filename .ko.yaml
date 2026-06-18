@@ -1,0 +1,5 @@
+# ko config — builds static Go service images WITHOUT a Docker daemon.
+# Image name: $KO_DOCKER_REPO/<service>:<tag>  (with --base-import-paths).
+defaultBaseImage: gcr.io/distroless/static:nonroot
+defaultPlatforms:
+  - linux/amd64

@@ -1,0 +1,60 @@
+# trader-svc executes REAL orders and is the SOLE holder of the private key.
+# It ships at replicas: 0 — the rest of the pipeline (watch -> alert -> approve)
+# runs without it. Scale to 1 ONLY when you are eligible to trade (Polymarket
+# geofences US persons) AND the Secret holds TRADER_PRIVATE_KEY + POLYMARKET_API_*
+# and the ConfigMap has TRADER_MAKER_ADDRESS/TRADER_FUNDER_ADDRESS:
+#   kubectl -n lobsterroll scale deploy/trader --replicas=1
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: trader-data
+  namespace: lobsterroll
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trader
+  namespace: lobsterroll
+spec:
+  replicas: 0 # GATED. See header.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: trader
+  template:
+    metadata:
+      labels:
+        app: trader
+    spec:
+      containers:
+        - name: trader
+          image: lobsterroll/trader:dev
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: lobsterroll-config # EXECUTION_MODE + caps + trader addresses
+            - secretRef:
+                name: lobsterroll-secrets # TRADER_PRIVATE_KEY + POLYMARKET_API_*
+          env:
+            - name: TRADER_DB_PATH
+              value: /data/trader.db
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: trader-data

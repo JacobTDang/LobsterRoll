@@ -5,6 +5,11 @@ resources:
   - namespace.yaml
   - configmap.yaml
   - nats.yaml
+  - leaderboard.yaml
+  - enrichment.yaml
   - watcher.yaml
+  - strategy.yaml
+  - notifier.yaml
+  - consensus.yaml
+  - trader.yaml # ships at replicas: 0 (gated)
   # Secrets are applied separately from deploy/k8s/secrets/ (gitignored).
-  # Remaining services are added here as each phase is implemented.

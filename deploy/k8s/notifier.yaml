@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notifier
+  namespace: lobsterroll
+spec:
+  replicas: 1 # Telegram long-poll offset is per-instance: MUST stay at 1
+  selector:
+    matchLabels:
+      app: notifier
+  template:
+    metadata:
+      labels:
+        app: notifier
+    spec:
+      containers:
+        - name: notifier
+          image: lobsterroll/notifier:dev
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: lobsterroll-config # NATS_URL + ENRICHMENT/LEADERBOARD dial addrs
+            - secretRef:
+                name: lobsterroll-secrets # TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "32Mi"
+            limits:
+              cpu: "250m"
+              memory: "128Mi"

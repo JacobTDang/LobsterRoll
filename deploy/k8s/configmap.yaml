@@ -4,13 +4,33 @@ metadata:
   name: lobsterroll-config
   namespace: lobsterroll
 data:
-  EXECUTION_MODE: "approval"
-  LEADERBOARD_WINDOW: "7d"
-  LEADERBOARD_METRIC: "pnl"
-  LEADERBOARD_TOP_N: "25"
-  LEADERBOARD_SYNC_INTERVAL: "6h"
+  # ---- bus ----
   NATS_URL: "nats://nats:4222"
+
+  # ---- gRPC dial addresses (consumers dial these Services; the owning service
+  # overrides its own var to a bind address ":<port>" in its Deployment) ----
+  LEADERBOARD_GRPC_ADDR: "leaderboard:50051"
+  ENRICHMENT_GRPC_ADDR: "enrichment:50052"
+
+  # ---- leaderboard: track top-30 consistent winners, refresh daily ----
+  LEADERBOARD_WINDOW: "30d"
+  LEADERBOARD_METRIC: "pnl"
+  LEADERBOARD_TOP_N: "30"
+  STATS_REFRESH_INTERVAL: "24h"
+  STATS_MIN_RESOLVED: "3"
+  CANDIDATE_TOPK: "50"
+  STATS_MAX_CANDIDATES: "80"
+  STATS_CONCURRENCY: "8"
+
+  # ---- consensus ----
+  CONSENSUS_MIN_WALLETS: "3"
+  CONSENSUS_WINDOW: "6h"
+
+  # ---- execution policy + risk caps (trader) ----
+  EXECUTION_MODE: "approval"
   MAX_USD_PER_TRADE: "25"
   MAX_USD_PER_DAY: "200"
   MAX_OPEN_EXPOSURE_USD: "500"
-  MAX_SLIPPAGE_CENTS: "3"
+  # Trader wallet model (addresses are not secret; the private key is — see Secret).
+  TRADER_SIGNATURE_TYPE: "1" # 1 proxy | 2 gnosis | 0 EOA
+  # TRADER_MAKER_ADDRESS / TRADER_FUNDER_ADDRESS: set when you wire the trader.
