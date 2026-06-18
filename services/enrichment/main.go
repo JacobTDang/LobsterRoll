@@ -37,7 +37,7 @@ func run(ctx context.Context, log *slog.Logger) error {
 	}
 	defer cch.Close()
 
-	srv := server.New(cch, client.New(cfg.GammaBase, nil))
+	srv := server.New(cch, client.New(cfg.GammaBase, nil), log)
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {

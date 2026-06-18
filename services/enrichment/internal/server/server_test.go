@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -18,8 +19,9 @@ import (
 )
 
 type memCache struct {
-	mu sync.Mutex
-	m  map[string]client.Enrichment
+	mu     sync.Mutex
+	m      map[string]client.Enrichment
+	putErr error
 }
 
 func newMemCache() *memCache { return &memCache{m: map[string]client.Enrichment{}} }
@@ -32,6 +34,9 @@ func (c *memCache) Get(_ context.Context, tok string) (client.Enrichment, bool, 
 func (c *memCache) Put(_ context.Context, tok string, e client.Enrichment) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.putErr != nil {
+		return c.putErr
+	}
 	c.m[tok] = e
 	return nil
 }
@@ -76,7 +81,7 @@ var sample = client.Enrichment{MarketQuestion: "Q?", Outcome: "Yes", MarketSlug:
 
 func TestEnrichToken_MissThenCached(t *testing.T) {
 	res := &fakeResolver{result: sample, found: true}
-	client := dial(t, New(newMemCache(), res))
+	client := dial(t, New(newMemCache(), res, nil))
 
 	// First call: resolver hit, response correct.
 	resp, err := client.EnrichToken(context.Background(), &lobsterrollv1.EnrichTokenRequest{TokenId: "t1"})
@@ -96,7 +101,7 @@ func TestEnrichToken_MissThenCached(t *testing.T) {
 }
 
 func TestEnrichToken_NotFound(t *testing.T) {
-	cl := dial(t, New(newMemCache(), &fakeResolver{found: false}))
+	cl := dial(t, New(newMemCache(), &fakeResolver{found: false}, nil))
 	_, err := cl.EnrichToken(context.Background(), &lobsterrollv1.EnrichTokenRequest{TokenId: "missing"})
 	if status.Code(err) != codes.NotFound {
 		t.Fatalf("err = %v, want NotFound", err)
@@ -104,16 +109,30 @@ func TestEnrichToken_NotFound(t *testing.T) {
 }
 
 func TestEnrichToken_EmptyToken(t *testing.T) {
-	cl := dial(t, New(newMemCache(), &fakeResolver{}))
+	cl := dial(t, New(newMemCache(), &fakeResolver{}, nil))
 	_, err := cl.EnrichToken(context.Background(), &lobsterrollv1.EnrichTokenRequest{TokenId: ""})
 	if status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("err = %v, want InvalidArgument", err)
 	}
 }
 
+func TestEnrichToken_CacheWriteFailureStillServes(t *testing.T) {
+	cache := newMemCache()
+	cache.putErr = errors.New("disk full")
+	cl := dial(t, New(cache, &fakeResolver{result: sample, found: true}, nil))
+
+	resp, err := cl.EnrichToken(context.Background(), &lobsterrollv1.EnrichTokenRequest{TokenId: "t1"})
+	if err != nil {
+		t.Fatalf("EnrichToken should succeed despite cache Put failure: %v", err)
+	}
+	if resp.GetMarketQuestion() != "Q?" {
+		t.Fatalf("resp = %+v, want the resolved enrichment", resp)
+	}
+}
+
 func TestEnrichToken_SingleFlight(t *testing.T) {
 	res := &fakeResolver{result: sample, found: true, delay: 100 * time.Millisecond}
-	srv := New(newMemCache(), res)
+	srv := New(newMemCache(), res, nil)
 
 	// Many concurrent misses for the same token must collapse to one fetch.
 	var wg sync.WaitGroup

@@ -5,6 +5,7 @@ package server
 import (
 	"context"
 	"errors"
+	"log/slog"
 
 	"golang.org/x/sync/singleflight"
 	"google.golang.org/grpc/codes"
@@ -32,12 +33,16 @@ type Server struct {
 
 	cache    Cache
 	resolver Resolver
+	log      *slog.Logger
 	group    singleflight.Group
 }
 
-// New returns a Server.
-func New(cache Cache, resolver Resolver) *Server {
-	return &Server{cache: cache, resolver: resolver}
+// New returns a Server. If log is nil, slog.Default() is used.
+func New(cache Cache, resolver Resolver, log *slog.Logger) *Server {
+	if log == nil {
+		log = slog.Default()
+	}
+	return &Server{cache: cache, resolver: resolver, log: log}
 }
 
 // EnrichToken resolves a tokenId to its market/outcome, serving from cache when
@@ -64,8 +69,9 @@ func (s *Server) EnrichToken(ctx context.Context, req *lobsterrollv1.EnrichToken
 		if !ok {
 			return nil, errNotFound
 		}
+		// A cache-write hiccup must not discard a good resolution: log and serve it.
 		if perr := s.cache.Put(ctx, tokenID, e); perr != nil {
-			return nil, perr
+			s.log.Warn("enrichment cache write failed; serving uncached", "token", tokenID, "err", perr)
 		}
 		return e, nil
 	})
