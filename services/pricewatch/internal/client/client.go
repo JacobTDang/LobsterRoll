@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -53,6 +54,11 @@ func (c *Client) Midpoint(ctx context.Context, tokenID string) (float64, error) 
 	mid, err := strconv.ParseFloat(resp.Mid, 64)
 	if err != nil {
 		return 0, fmt.Errorf("parse mid %q for %s: %w", resp.Mid, tokenID, err)
+	}
+	// A share price must be a real number in [0,1]; anything else is junk that
+	// would silently corrupt a later CLV computation if stored.
+	if math.IsNaN(mid) || math.IsInf(mid, 0) || mid < 0 || mid > 1 {
+		return 0, fmt.Errorf("midpoint %s out of range: %v", tokenID, mid)
 	}
 	return mid, nil
 }

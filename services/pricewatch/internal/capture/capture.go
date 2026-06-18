@@ -21,8 +21,12 @@ type Snapshotter interface {
 }
 
 // Tracker holds the set of tokens to snapshot, keyed by the last time each was
-// traded. Tokens untraded for longer than ttl are dropped (their market has
-// resolved — the close is already captured), bounding the polled set.
+// traded. Tokens untraded for longer than ttl are dropped to bound the polled
+// set. Eviction is NOT permanent and does NOT assume resolution: any later trade
+// re-adds the token (Track), and markets typically see late trading near close
+// — so the closing line is still captured. A fully-silent market's price isn't
+// moving, so its last snapshot already serves as the close. (A future refinement
+// could evict on the market's actual endDate via enrichment instead of ttl.)
 type Tracker struct {
 	mu     sync.Mutex
 	seen   map[string]int64

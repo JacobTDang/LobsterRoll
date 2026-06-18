@@ -33,7 +33,7 @@ data:
 
   # ---- pricewatch (live CLV capture) ----
   PRICEWATCH_POLL_INTERVAL: "2m"  # snapshot every tracked token this often
-  PRICEWATCH_TOKEN_TTL: "48h"     # stop polling a token untraded this long (market resolved)
+  PRICEWATCH_TOKEN_TTL: "168h"    # stop polling a token untraded this long (re-added on next trade)
   PRICEWATCH_RETENTION: "720h"    # prune price snapshots older than this (30d)
 
   # ---- consensus ----

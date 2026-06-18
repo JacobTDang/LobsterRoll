@@ -44,6 +44,21 @@ func TestStore_PutAndNearest(t *testing.T) {
 	}
 }
 
+func TestStore_NearestExactTie(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	_ = s.Put(ctx, "tok", 100, 0.40)
+	_ = s.Put(ctx, "tok", 300, 0.60)
+	// target 200 is equidistant from both; the tie-break (ts DESC) picks the newer.
+	got, err := s.Nearest(ctx, "tok", 200)
+	if err != nil {
+		t.Fatalf("Nearest: %v", err)
+	}
+	if got.TS != 300 {
+		t.Errorf("Nearest(200) ts = %d, want 300 (tie -> newer)", got.TS)
+	}
+}
+
 func TestStore_PutIdempotent(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)

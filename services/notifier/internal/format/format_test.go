@@ -80,6 +80,33 @@ func TestFormatAlert_SellExit(t *testing.T) {
 	}
 }
 
+func TestSignedPct(t *testing.T) {
+	cases := []struct {
+		frac float64
+		want string
+	}{
+		{0.314, "+31%"}, {0.316, "+32%"}, {-0.124, "-12%"}, {-0.126, "-13%"},
+		{0.0, "0%"}, {0.001, "0%"}, {-0.001, "0%"}, {-0.999, "-100%"}, {1.5, "+150%"},
+	}
+	for _, c := range cases {
+		if got := signedPct(c.frac); got != c.want {
+			t.Errorf("signedPct(%v) = %q, want %q", c.frac, got, c.want)
+		}
+	}
+}
+
+func TestFormatAlert_CoolingMarker(t *testing.T) {
+	td := bus.TradeDetected{Wallet: "0x037c0f46600702e77ccb738721a78d6418d3a458", Side: "buy", Price: "0.5", Size: "10"}
+	stats := WhaleStats{WinRate: 0.7, ResolvedMarkets: 40, ROI: 0.1, SkillScore: 50, Fresh: false, OK: true}
+	got := FormatAlert(td, Market{Question: "Q", Outcome: "Yes", Found: true}, stats)
+	if !strings.Contains(got, "⚠️cooling") {
+		t.Errorf("cooling wallet should show ⚠️cooling marker: %q", got)
+	}
+	if strings.Contains(got, "✅") {
+		t.Errorf("cooling wallet should not show ✅: %q", got)
+	}
+}
+
 func TestFormatAlert_ShowsGameEndDate(t *testing.T) {
 	td := bus.TradeDetected{Wallet: "0x037c0f46600702e77ccb738721a78d6418d3a458", Side: "buy", Price: "0.5", Size: "10"}
 	end := time.Date(2026, 6, 27, 21, 0, 0, 0, time.UTC).Unix()

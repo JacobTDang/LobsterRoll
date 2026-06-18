@@ -36,13 +36,14 @@ func (s *Store) ensureStatsSchema(ctx context.Context) error {
 			profit_30d       REAL    NOT NULL,
 			portfolio_value  REAL    NOT NULL,
 			traded_markets   INTEGER NOT NULL,
-			computed_unix    INTEGER NOT NULL,
-			roi              REAL    NOT NULL DEFAULT 0
+			computed_unix    INTEGER NOT NULL
 		)`)
 	if err != nil {
 		return fmt.Errorf("create wallet_stats schema: %w", err)
 	}
-	// Migrate older stats DBs forward; ignore "duplicate column".
+	// roi/skill_score/fresh are all added via ALTER (kept out of CREATE for one
+	// consistent migration path). Older DBs migrate forward; "duplicate column"
+	// on an already-migrated DB is expected and ignored.
 	for _, col := range []string{
 		`ALTER TABLE wallet_stats ADD COLUMN roi REAL NOT NULL DEFAULT 0`,
 		`ALTER TABLE wallet_stats ADD COLUMN skill_score INTEGER NOT NULL DEFAULT 0`,
@@ -119,9 +120,9 @@ func (s *Store) GetStats(ctx context.Context, wallet string) (StatsRecord, bool,
 	if errors.Is(err, sql.ErrNoRows) {
 		return StatsRecord{}, false, nil
 	}
-	r.Fresh = freshInt != 0
 	if err != nil {
 		return StatsRecord{}, false, fmt.Errorf("get stats %s: %w", wallet, err)
 	}
+	r.Fresh = freshInt != 0
 	return r, true, nil
 }

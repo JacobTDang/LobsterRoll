@@ -29,6 +29,9 @@ func TestMidpoint_Errors(t *testing.T) {
 	cases := map[string]http.HandlerFunc{
 		"bad json":   func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`not json`)) },
 		"bad mid":    func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`{"mid":"NaNxyz"}`)) },
+		"NaN price":  func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`{"mid":"NaN"}`)) },
+		"above 1":    func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`{"mid":"1.5"}`)) },
+		"negative":   func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`{"mid":"-0.2"}`)) },
 		"server 500": func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(500) },
 	}
 	for name, h := range cases {

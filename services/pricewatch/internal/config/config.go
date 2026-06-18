@@ -25,7 +25,7 @@ const (
 	defDBPath       = "pricewatch.db"
 	defQueueGroup   = "pricewatch"
 	defPollInterval = 2 * time.Minute
-	defTokenTTL     = 48 * time.Hour
+	defTokenTTL     = 7 * 24 * time.Hour // conservative: keep quiet-but-live markets polling
 	defRetention    = 30 * 24 * time.Hour
 )
 

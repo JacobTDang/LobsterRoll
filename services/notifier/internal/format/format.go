@@ -152,13 +152,24 @@ func signedMoney(v float64) string {
 }
 
 // signedPct renders a fraction as a signed whole-percent, e.g. 0.314 -> "+31%",
-// -0.12 -> "-12%" (rounded half away from zero).
+// -0.12 -> "-12%" (rounded half away from zero). A value rounding to zero renders
+// "0%" with no sign.
 func signedPct(frac float64) string {
 	p := frac * 100
+	var n int
 	if p >= 0 {
-		return fmt.Sprintf("+%d%%", int(p+0.5))
+		n = int(p + 0.5)
+	} else {
+		n = int(p - 0.5)
 	}
-	return fmt.Sprintf("%d%%", int(p-0.5))
+	switch {
+	case n > 0:
+		return fmt.Sprintf("+%d%%", n)
+	case n < 0:
+		return fmt.Sprintf("%d%%", n)
+	default:
+		return "0%"
+	}
 }
 
 // humanWindow renders a duration in seconds as a compact window like 30m or 6h.
