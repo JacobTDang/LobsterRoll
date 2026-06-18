@@ -70,10 +70,10 @@ func TestPipeline_EndToEnd(t *testing.T) {
 
 	select {
 	case text := <-gotText:
-		if want := "Will it rain? — Yes"; !strings.Contains(text, want) {
+		if want := "Will it rain? → Yes"; !strings.Contains(text, want) {
 			t.Fatalf("alert missing %q:\n%s", want, text)
 		}
-		if !strings.Contains(text, "🟢 BUY") {
+		if !strings.Contains(text, "🟢 ENTER (BUY)") {
 			t.Fatalf("alert missing side marker:\n%s", text)
 		}
 	case <-time.After(20 * time.Second):

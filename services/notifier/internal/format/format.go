@@ -13,34 +13,42 @@ import (
 type Market struct {
 	Question string
 	Outcome  string
+	Slug     string // gamma market slug → polymarket.com/event/<slug>
 	Found    bool
 	// LookupFailed distinguishes a transient enrichment failure (couldn't look
 	// up) from a genuinely unknown token, so the alert isn't mislabeled.
 	LookupFailed bool
 }
 
-// FormatAlert renders a one-way alert for a detected trade.
+// FormatAlert renders a one-way alert for a detected trade: what the whale is
+// betting on, how much (USD first), whether they're entering or exiting, and when.
 func FormatAlert(td bus.TradeDetected, m Market) string {
-	emoji, label := "🔴", "SELL"
+	// A buy opens/adds to a position (ENTER); a sell closes/reduces it (EXIT).
+	emoji, action, side := "🔴", "EXIT", "SELL"
 	if strings.EqualFold(td.Side, "buy") {
-		emoji, label = "🟢", "BUY"
-	}
-
-	var market string
-	switch {
-	case m.Found:
-		market = fmt.Sprintf("%s — %s", m.Question, m.Outcome)
-	case m.LookupFailed:
-		market = fmt.Sprintf("Market lookup unavailable (token %s)", shortenMiddle(td.TokenID, 4, 4))
-	default:
-		market = fmt.Sprintf("Unknown market (token %s)", shortenMiddle(td.TokenID, 4, 4))
+		emoji, action, side = "🟢", "ENTER", "BUY"
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s %s  whale %s\n", emoji, label, shortenHex(td.Wallet))
-	fmt.Fprintf(&b, "%s\n", market)
-	fmt.Fprintf(&b, "%s shares @ $%s  (≈ $%s)\n", td.Size, td.Price, notional(td.Size, td.Price))
-	fmt.Fprintf(&b, "https://polygonscan.com/tx/%s", td.TxHash)
+	fmt.Fprintf(&b, "%s %s (%s)  whale %s\n", emoji, action, side, shortenHex(td.Wallet))
+
+	switch {
+	case m.Found:
+		fmt.Fprintf(&b, "%s → %s\n", m.Question, m.Outcome)
+	case m.LookupFailed:
+		fmt.Fprintf(&b, "Market lookup unavailable (token %s)\n", shortenMiddle(td.TokenID, 4, 4))
+	default:
+		fmt.Fprintf(&b, "Unknown market (token %s)\n", shortenMiddle(td.TokenID, 4, 4))
+	}
+
+	fmt.Fprintf(&b, "💵 $%s  ·  %s @ $%s\n", notional(td.Size, td.Price), td.Size, td.Price)
+	if !td.ObservedAt.IsZero() {
+		fmt.Fprintf(&b, "🕒 %s\n", td.ObservedAt.UTC().Format("2006-01-02 15:04 UTC"))
+	}
+	if m.Found && m.Slug != "" {
+		fmt.Fprintf(&b, "📊 https://polymarket.com/event/%s\n", m.Slug)
+	}
+	fmt.Fprintf(&b, "🔗 https://polygonscan.com/tx/%s", td.TxHash)
 	return b.String()
 }
 

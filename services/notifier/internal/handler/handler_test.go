@@ -57,10 +57,10 @@ func TestHandle_Enriched(t *testing.T) {
 	if snd.chatID != "999" {
 		t.Errorf("chatID = %q, want 999", snd.chatID)
 	}
-	if !strings.Contains(snd.text, "Ghana vs. Panama: O/U 2.5 — Over") {
+	if !strings.Contains(snd.text, "Ghana vs. Panama: O/U 2.5 → Over") {
 		t.Errorf("text missing market: %q", snd.text)
 	}
-	if !strings.Contains(snd.text, "🟢 BUY") {
+	if !strings.Contains(snd.text, "🟢 ENTER (BUY)") {
 		t.Errorf("text missing buy marker: %q", snd.text)
 	}
 }

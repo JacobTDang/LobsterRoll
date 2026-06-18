@@ -48,7 +48,7 @@ func (h *Handler) Handle(ctx context.Context, td bus.TradeDetected) {
 		resp, err := h.enrich.EnrichToken(ctx, &lobsterrollv1.EnrichTokenRequest{TokenId: td.TokenID})
 		switch {
 		case err == nil:
-			market = format.Market{Question: resp.GetMarketQuestion(), Outcome: resp.GetOutcome(), Found: true}
+			market = format.Market{Question: resp.GetMarketQuestion(), Outcome: resp.GetOutcome(), Slug: resp.GetMarketSlug(), Found: true}
 		case status.Code(err) == codes.NotFound:
 			// Genuinely unknown token — alert as "Unknown market".
 		default:
