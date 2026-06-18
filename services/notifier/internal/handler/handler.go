@@ -103,7 +103,11 @@ func (h *Handler) Handle(ctx context.Context, td bus.TradeDetected) {
 
 	text := format.FormatAlert(td, market, ws)
 	if err := h.sender.Send(ctx, h.chatID, text); err != nil {
-		// Un-cache both so a redelivery can retry (a failed send isn't a sent message).
+		// A failed send delivered nothing, so undo both caches. Removing the exact
+		// dedup key lets this fill retry on re-emit; the cooldown key MUST also be
+		// cleared or it would block that very retry (it's keyed per market+side,
+		// not per fill). Net effect: still one alert per burst — just the first
+		// one that actually sends — never zero because of a transient failure.
 		if h.dedup != nil {
 			h.dedup.Remove(key)
 		}
@@ -159,13 +163,30 @@ func (h *Handler) lookupStats(ctx context.Context, wallet string) format.WhaleSt
 	}
 }
 
+// consensusKey identifies a consensus signal by its exact cohort, so a NATS
+// redelivery of the same signal is suppressed while a genuinely different cohort
+// (a re-fire after dissipation, or growth to a new size) still alerts. Wallets
+// arrive distinct + sorted from the window, so the join is stable.
+func consensusKey(sig bus.ConsensusSignal) string {
+	return fmt.Sprintf("consensus:%s:%s:%s", sig.TokenID, strings.ToLower(sig.Side), strings.Join(sig.Wallets, ","))
+}
+
 // HandleConsensus enriches the consensus token and sends the premium alert.
 // Like Handle, it degrades gracefully and never returns errors to the bus.
 func (h *Handler) HandleConsensus(ctx context.Context, sig bus.ConsensusSignal) {
+	key := consensusKey(sig)
+	if h.dedup != nil && !h.dedup.Add(key) {
+		h.log.Info("duplicate consensus alert suppressed", "token", sig.TokenID, "count", sig.Count)
+		return
+	}
+
 	market := h.resolveMarket(ctx, sig.TokenID)
 
 	text := format.FormatConsensus(sig, market)
 	if err := h.sender.Send(ctx, h.chatID, text); err != nil {
+		if h.dedup != nil {
+			h.dedup.Remove(key) // failed send delivered nothing -> allow retry
+		}
 		h.log.Error("send consensus alert failed", "token", sig.TokenID, "count", sig.Count, "err", err)
 		return
 	}

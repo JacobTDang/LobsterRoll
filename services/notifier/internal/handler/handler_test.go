@@ -304,3 +304,55 @@ func TestHandleConsensus_EnrichmentNotFound_StillAlerts(t *testing.T) {
 		t.Errorf("NotFound should say unknown market: %q", snd.text)
 	}
 }
+
+func TestHandleConsensus_DeduplicatesSameCohort(t *testing.T) {
+	enr := fakeEnricher{resp: &lobsterrollv1.EnrichTokenResponse{MarketQuestion: "Q", Outcome: "Yes"}}
+	snd := &fakeSender{}
+	h := New(enr, nil, snd, "1", dd(), cd(), quiet())
+	sig := bus.ConsensusSignal{TokenID: "2596", Side: "buy", Wallets: []string{"a", "b", "c"}, Count: 3}
+
+	h.HandleConsensus(context.Background(), sig)
+	h.HandleConsensus(context.Background(), sig) // NATS redelivery of the same signal
+	if snd.calls != 1 {
+		t.Fatalf("send calls = %d, want 1 (redelivered consensus suppressed)", snd.calls)
+	}
+
+	// A grown/different cohort is a new signal and must alert.
+	grown := bus.ConsensusSignal{TokenID: "2596", Side: "buy", Wallets: []string{"a", "b", "c", "d"}, Count: 4}
+	h.HandleConsensus(context.Background(), grown)
+	if snd.calls != 2 {
+		t.Fatalf("send calls = %d, want 2 (different cohort must alert)", snd.calls)
+	}
+}
+
+func TestHandleConsensus_SendFailureRetryable(t *testing.T) {
+	enr := fakeEnricher{resp: &lobsterrollv1.EnrichTokenResponse{MarketQuestion: "Q", Outcome: "Yes"}}
+	snd := &fakeSender{err: errors.New("telegram down")}
+	h := New(enr, nil, snd, "1", dd(), cd(), quiet())
+	sig := bus.ConsensusSignal{TokenID: "2596", Side: "buy", Wallets: []string{"a", "b", "c"}, Count: 3}
+
+	h.HandleConsensus(context.Background(), sig) // fails -> must not be cached
+	snd.err = nil
+	h.HandleConsensus(context.Background(), sig) // redelivery should now succeed
+	if snd.calls != 2 {
+		t.Fatalf("send attempts = %d, want 2 (failed consensus send must be retryable)", snd.calls)
+	}
+}
+
+func TestHandle_SendFailureClearsCooldown(t *testing.T) {
+	// Fail-open: after a failed send the cooldown is cleared, so a later trade on
+	// the same market+side still reaches the user (never silenced by a transient
+	// failure that delivered nothing).
+	enr := fakeEnricher{resp: &lobsterrollv1.EnrichTokenResponse{MarketQuestion: "Q", Outcome: "Yes"}}
+	snd := &fakeSender{err: errors.New("telegram down")}
+	h := New(enr, nil, snd, "1", dd(), cd(), quiet())
+
+	t1 := bus.TradeDetected{Wallet: "0xW", TokenID: "1", Side: "buy", Size: "5", TxHash: "0xa", LogIndex: 1}
+	h.Handle(context.Background(), t1) // fails
+	snd.err = nil
+	t2 := bus.TradeDetected{Wallet: "0xW", TokenID: "1", Side: "buy", Size: "9", TxHash: "0xb", LogIndex: 2}
+	h.Handle(context.Background(), t2) // different fill, same market+side -> must alert
+	if snd.calls != 2 {
+		t.Fatalf("send calls = %d, want 2 (cooldown cleared on failure)", snd.calls)
+	}
+}
