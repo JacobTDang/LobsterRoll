@@ -70,7 +70,6 @@ type placeReq struct {
 
 // PlaceResult is the parsed response of a successful placement.
 type PlaceResult struct {
-	Success bool
 	OrderID string
 	Status  string // e.g. "matched", "live", "unmatched"
 }
@@ -154,7 +153,7 @@ func (c *Client) PlaceOrder(ctx context.Context, o SignedOrder) (PlaceResult, er
 	if (r.Success != nil && !*r.Success) || r.Error != "" || r.ErrorMsg != "" {
 		return PlaceResult{}, fmt.Errorf("%w %s: status=%s err=%s%s", ErrRejected, r.OrderID, r.Status, r.Error, r.ErrorMsg)
 	}
-	return PlaceResult{Success: true, OrderID: r.OrderID, Status: r.Status}, nil
+	return PlaceResult{OrderID: r.OrderID, Status: r.Status}, nil
 }
 
 // ErrRejected marks a placement the exchange definitively did NOT accept (an

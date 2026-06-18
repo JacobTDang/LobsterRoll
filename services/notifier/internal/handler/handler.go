@@ -51,20 +51,7 @@ func New(enrich Enricher, stats WhaleStatsLookuper, sender Sender, chatID string
 // Handle enriches td, formats an alert, and sends it. Errors are logged, not
 // returned, so one bad trade can't stall the consumer.
 func (h *Handler) Handle(ctx context.Context, td bus.TradeDetected) {
-	market := format.Market{Found: false}
-	if td.TokenID != "" {
-		resp, err := h.enrich.EnrichToken(ctx, &lobsterrollv1.EnrichTokenRequest{TokenId: td.TokenID})
-		switch {
-		case err == nil:
-			market = format.Market{Question: resp.GetMarketQuestion(), Outcome: resp.GetOutcome(), Slug: resp.GetMarketSlug(), Found: true}
-		case status.Code(err) == codes.NotFound:
-			// Genuinely unknown token — alert as "Unknown market".
-		default:
-			// Transient failure (enrichment down, timeout): don't mislabel as unknown.
-			h.log.Warn("enrichment lookup failed; alerting without market", "token", td.TokenID, "err", err)
-			market = format.Market{LookupFailed: true}
-		}
-	}
+	market := h.resolveMarket(ctx, td.TokenID)
 
 	// Best-effort whale track record: a lookup failure or unknown wallet just
 	// omits the stats line — it must never block or fail the alert.
@@ -76,6 +63,25 @@ func (h *Handler) Handle(ctx context.Context, td bus.TradeDetected) {
 		return
 	}
 	h.log.Info("alert sent", "wallet", td.Wallet, "side", td.Side, "size", td.Size)
+}
+
+// resolveMarket enriches a tokenId to market context, degrading gracefully: an
+// empty token or a NotFound yields an unresolved Market ("Unknown market"); a
+// transient enrichment error yields LookupFailed (so it isn't mislabeled unknown).
+func (h *Handler) resolveMarket(ctx context.Context, tokenID string) format.Market {
+	if tokenID == "" {
+		return format.Market{}
+	}
+	resp, err := h.enrich.EnrichToken(ctx, &lobsterrollv1.EnrichTokenRequest{TokenId: tokenID})
+	switch {
+	case err == nil:
+		return format.Market{Question: resp.GetMarketQuestion(), Outcome: resp.GetOutcome(), Slug: resp.GetMarketSlug(), Found: true}
+	case status.Code(err) == codes.NotFound:
+		return format.Market{}
+	default:
+		h.log.Warn("enrichment lookup failed; alerting without market", "token", tokenID, "err", err)
+		return format.Market{LookupFailed: true}
+	}
 }
 
 // lookupStats best-effort fetches the whale's leaderboard track record. It
@@ -105,19 +111,7 @@ func (h *Handler) lookupStats(ctx context.Context, wallet string) format.WhaleSt
 // HandleConsensus enriches the consensus token and sends the premium alert.
 // Like Handle, it degrades gracefully and never returns errors to the bus.
 func (h *Handler) HandleConsensus(ctx context.Context, sig bus.ConsensusSignal) {
-	market := format.Market{Found: false}
-	if sig.TokenID != "" {
-		resp, err := h.enrich.EnrichToken(ctx, &lobsterrollv1.EnrichTokenRequest{TokenId: sig.TokenID})
-		switch {
-		case err == nil:
-			market = format.Market{Question: resp.GetMarketQuestion(), Outcome: resp.GetOutcome(), Slug: resp.GetMarketSlug(), Found: true}
-		case status.Code(err) == codes.NotFound:
-			// Genuinely unknown token — alert as "Unknown market".
-		default:
-			h.log.Warn("enrichment lookup failed; consensus alert without market", "token", sig.TokenID, "err", err)
-			market = format.Market{LookupFailed: true}
-		}
-	}
+	market := h.resolveMarket(ctx, sig.TokenID)
 
 	text := format.FormatConsensus(sig, market)
 	if err := h.sender.Send(ctx, h.chatID, text); err != nil {

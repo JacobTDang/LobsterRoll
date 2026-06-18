@@ -24,7 +24,7 @@ go build -o bin/natsd ./tools/natsd
 
 # Clear any stragglers from a previous run so ports (4222/50051/50052) are free.
 # (We run real binaries, not `go run`, so the trap above actually kills them.)
-pkill -f 'bin/(natsd|leaderboard|watcher|enrichment|strategy|notifier|consensus)' 2>/dev/null || true
+pkill -Ef 'bin/(natsd|leaderboard|watcher|enrichment|strategy|notifier|consensus)' 2>/dev/null || true
 sleep 1
 
 echo ">> natsd (embedded NATS, no docker)"; ./bin/natsd & pids+=($!)

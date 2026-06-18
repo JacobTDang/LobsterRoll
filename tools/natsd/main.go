@@ -18,7 +18,7 @@ import (
 
 func main() {
 	port := flag.Int("port", 4222, "client port")
-	host := flag.String("host", "0.0.0.0", "bind host")
+	host := flag.String("host", "127.0.0.1", "bind host (loopback by default; this is an unauthenticated dev broker)")
 	flag.Parse()
 
 	s, err := server.NewServer(&server.Options{Host: *host, Port: *port})

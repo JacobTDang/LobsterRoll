@@ -2,9 +2,6 @@
 // helpers for the watcher.
 package chain
 
-// PolygonChainID is the Polygon mainnet chain id.
-const PolygonChainID = 137
-
 // CTF Exchange contract addresses on Polygon that emit OrderFilled (verified
 // live against Sourcify + on-chain logs). Addresses are lowercase so they
 // compare cleanly against normalized maker/taker addresses.

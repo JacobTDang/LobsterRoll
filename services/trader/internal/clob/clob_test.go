@@ -48,7 +48,7 @@ func TestPlaceOrder_AcceptedSendsSignedPayloadAndHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PlaceOrder: %v", err)
 	}
-	if !res.Success || res.OrderID != "ord-1" || res.Status != "matched" {
+	if res.OrderID != "ord-1" || res.Status != "matched" {
 		t.Fatalf("result = %+v", res)
 	}
 	// L2 headers present.

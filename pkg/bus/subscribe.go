@@ -11,8 +11,9 @@ import (
 
 // Subscriber consumes event-pipeline messages from NATS.
 type Subscriber struct {
-	nc  *nats.Conn
-	log *slog.Logger
+	nc     *nats.Conn
+	log    *slog.Logger
+	closed chan struct{} // closed when the connection has fully closed (post-drain)
 }
 
 // NewSubscriber dials NATS at url. Like Connect, it fails fast on startup and
@@ -21,15 +22,17 @@ func NewSubscriber(url string, log *slog.Logger) (*Subscriber, error) {
 	if log == nil {
 		log = slog.Default()
 	}
+	closed := make(chan struct{})
 	nc, err := nats.Connect(url,
 		nats.MaxReconnects(-1),
 		nats.ReconnectWait(2*time.Second),
 		nats.Timeout(5*time.Second),
+		nats.ClosedHandler(func(*nats.Conn) { close(closed) }),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("nats connect %q: %w", url, err)
 	}
-	return &Subscriber{nc: nc, log: log}, nil
+	return &Subscriber{nc: nc, log: log, closed: closed}, nil
 }
 
 // OnTradeDetected invokes handler for each TradeDetected on SubjectTradeDetected.
@@ -99,9 +102,19 @@ func (s *Subscriber) OnControl(handler func(ControlMsg)) (*nats.Subscription, er
 // (e.g. subscriptions), so a publisher can be sure subscriptions are live.
 func (s *Subscriber) Flush() error { return s.nc.Flush() }
 
-// Close drains and closes the connection.
+// Close drains the connection (letting in-flight handlers finish) and waits,
+// bounded, for it to fully close so the process doesn't exit mid-handler.
 func (s *Subscriber) Close() {
-	if s.nc != nil {
-		_ = s.nc.Drain()
+	if s.nc == nil {
+		return
+	}
+	if err := s.nc.Drain(); err != nil {
+		s.nc.Close()
+		return
+	}
+	select {
+	case <-s.closed:
+	case <-time.After(6 * time.Second):
+		s.nc.Close() // drain overran; force close
 	}
 }

@@ -103,7 +103,7 @@ var proposal = bus.OrderProposal{ID: "prop-1", TokenID: "123", Side: "buy", Limi
 
 func newHandler(allow bool) (*Handler, *fakePlacer, *fakePub, *fakeCaps, *halt.State) {
 	c := &fakeCaps{allow: allow, reason: "per-trade cap"}
-	pl := &fakePlacer{res: clob.PlaceResult{Success: true, OrderID: "ord-1", Status: "matched"}}
+	pl := &fakePlacer{res: clob.PlaceResult{OrderID: "ord-1", Status: "matched"}}
 	pub := &fakePub{}
 	h := halt.New()
 	pol := config.ExecutionPolicy{Mode: config.ModeApproval}
@@ -181,7 +181,7 @@ func TestPlace_SignErrorReleasesCapsAndUnclaims(t *testing.T) {
 
 func TestPlace_HaltMidFlightRefuses(t *testing.T) {
 	c := &fakeCaps{allow: true}
-	pl := &fakePlacer{res: clob.PlaceResult{Success: true, OrderID: "o"}}
+	pl := &fakePlacer{res: clob.PlaceResult{OrderID: "o"}}
 	pub := &fakePub{}
 	st := newStore()
 	hs := halt.New()
@@ -237,7 +237,7 @@ func TestPlace_AmbiguousKeepsCaps(t *testing.T) {
 func TestPlace_RestingOrderNotMarkedFilled(t *testing.T) {
 	// A successful but resting order ("live") is accepted but NOT a fill.
 	c := &fakeCaps{allow: true}
-	pl := &fakePlacer{res: clob.PlaceResult{Success: true, OrderID: "ord-9", Status: "live"}}
+	pl := &fakePlacer{res: clob.PlaceResult{OrderID: "ord-9", Status: "live"}}
 	pub := &fakePub{}
 	h := New(c, fakeSigner{}, pl, newStore(), pub, halt.New(), config.ExecutionPolicy{Mode: config.ModeApproval}, quiet())
 	h.OnApproved(context.Background(), bus.OrderDecision{Proposal: proposal, Approved: true})
@@ -255,7 +255,7 @@ func TestPlace_RestingOrderNotMarkedFilled(t *testing.T) {
 
 func TestOnProposed_AutoModePlaces(t *testing.T) {
 	c := &fakeCaps{allow: true}
-	pl := &fakePlacer{res: clob.PlaceResult{Success: true, OrderID: "o"}}
+	pl := &fakePlacer{res: clob.PlaceResult{OrderID: "o"}}
 	h := New(c, fakeSigner{}, pl, newStore(), &fakePub{}, halt.New(), config.ExecutionPolicy{Mode: config.ModeAuto}, quiet())
 	h.OnProposed(context.Background(), proposal)
 	if pl.calls != 1 {

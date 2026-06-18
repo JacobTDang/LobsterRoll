@@ -63,6 +63,21 @@ func TestSelect_TopNTruncates(t *testing.T) {
 	}
 }
 
+func TestSelect_ZeroScoreBreaksByWinRate(t *testing.T) {
+	// All break-even (pnl 0 -> score 0); the higher win rate must rank first,
+	// not the alphabetically-first wallet.
+	cands := []Candidate{{Wallet: "0xaaa"}, {Wallet: "0xzzz"}}
+	stats := map[string]Stats{
+		"0xaaa": {WinRate: 0.3, ResolvedMarkets: 30, RealizedPnL: 0},
+		"0xzzz": {WinRate: 0.9, ResolvedMarkets: 30, RealizedPnL: 0},
+	}
+	got := Select(cands, stats, 20, 10)
+	want := []string{"0xzzz", "0xaaa"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Select = %v, want %v (zero-score ties break by win rate)", got, want)
+	}
+}
+
 func TestSelect_DeterministicTieBreak(t *testing.T) {
 	cands := []Candidate{{Wallet: "0xc"}, {Wallet: "0xa"}, {Wallet: "0xb"}}
 	// Identical stats -> identical scores; tie-break is wallet ascending.

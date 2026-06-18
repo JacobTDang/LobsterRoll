@@ -35,7 +35,7 @@ func main() {
 			log.Fatalf("fetch live market: %v", err)
 		}
 		*token = t
-		log.Printf("live market: %q (token %s…)", q, t[:8])
+		log.Printf("live market: %q (token %s…)", q, t[:min(8,len(t))])
 	}
 
 	pub, err := bus.Connect(*natsURL)
@@ -56,7 +56,7 @@ func main() {
 		if err := pub.PublishTrade(td); err != nil {
 			log.Fatalf("publish: %v", err)
 		}
-		log.Printf("published trades.detected: %s %s shares @ %s by %s (token %s…)", td.Side, td.Size, td.Price, w, td.TokenID[:8])
+		log.Printf("published trades.detected: %s %s shares @ %s by %s (token %s…)", td.Side, td.Size, td.Price, w, td.TokenID[:min(8,len(td.TokenID))])
 	}
 }
 

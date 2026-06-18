@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"time"
 )
@@ -47,7 +48,7 @@ func Parse(data []byte, tokenID string) (Data, bool, error) {
 		if err := json.Unmarshal([]byte(m.ClobTokenIDs), &tokens); err != nil {
 			continue // skip a malformed sibling; don't fail a resolvable token
 		}
-		idx := indexOf(tokens, tokenID)
+		idx := slices.Index(tokens, tokenID)
 		if idx < 0 {
 			continue
 		}
@@ -70,15 +71,6 @@ func Parse(data []byte, tokenID string) (Data, bool, error) {
 		}, true, nil
 	}
 	return Data{}, false, nil
-}
-
-func indexOf(s []string, v string) int {
-	for i, x := range s {
-		if x == v {
-			return i
-		}
-	}
-	return -1
 }
 
 // Client fetches market data over HTTP.

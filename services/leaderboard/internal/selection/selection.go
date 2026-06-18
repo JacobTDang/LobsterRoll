@@ -39,8 +39,9 @@ func Score(s Stats) float64 {
 // Ties break deterministically by wallet ascending.
 func Select(candidates []Candidate, statsByWallet map[string]Stats, minResolved, topN int) []string {
 	type scored struct {
-		wallet string
-		score  float64
+		wallet  string
+		score   float64
+		winRate float64
 	}
 	var pool []scored
 	for _, c := range candidates {
@@ -51,12 +52,18 @@ func Select(candidates []Candidate, statsByWallet map[string]Stats, minResolved,
 		if st.ResolvedMarkets < minResolved {
 			continue
 		}
-		pool = append(pool, scored{wallet: c.Wallet, score: Score(st)})
+		pool = append(pool, scored{wallet: c.Wallet, score: Score(st), winRate: st.WinRate})
 	}
 
+	// Rank by score, then win rate (so a pool of equal/zero scores — e.g. all
+	// break-even — favors the more accurate wallet rather than going alphabetical),
+	// then wallet for a deterministic tie-break.
 	sort.Slice(pool, func(i, j int) bool {
 		if pool[i].score != pool[j].score {
 			return pool[i].score > pool[j].score
+		}
+		if pool[i].winRate != pool[j].winRate {
+			return pool[i].winRate > pool[j].winRate
 		}
 		return pool[i].wallet < pool[j].wallet
 	})

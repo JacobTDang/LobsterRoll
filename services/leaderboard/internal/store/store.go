@@ -24,9 +24,9 @@ type Delta struct {
 // Empty reports whether nothing changed.
 func (d Delta) Empty() bool { return len(d.Added) == 0 && len(d.Removed) == 0 }
 
-// Diff computes the change from old to new. Order of inputs is irrelevant; the
+// diff computes the change from old to new. Order of inputs is irrelevant; the
 // returned slices are sorted and nil when empty.
-func Diff(old, new []string) Delta {
+func diff(old, new []string) Delta {
 	oldSet := make(map[string]struct{}, len(old))
 	for _, w := range old {
 		oldSet[w] = struct{}{}
@@ -156,7 +156,7 @@ func (s *Store) Replace(ctx context.Context, wallets []string) (Delta, error) {
 	if err != nil {
 		return Delta{}, err
 	}
-	d := Diff(current, wallets)
+	d := diff(current, wallets)
 	if d.Empty() {
 		return d, nil // nothing to write; leave added_at timestamps intact.
 	}

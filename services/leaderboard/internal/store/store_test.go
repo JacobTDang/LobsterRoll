@@ -28,7 +28,7 @@ func TestDiff(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			d := Diff(tt.old, tt.new)
+			d := diff(tt.old, tt.new)
 			if !reflect.DeepEqual(d.Added, tt.wantAdded) {
 				t.Errorf("Added = %v, want %v", d.Added, tt.wantAdded)
 			}
@@ -40,10 +40,10 @@ func TestDiff(t *testing.T) {
 }
 
 func TestDiff_Empty(t *testing.T) {
-	if d := Diff(nil, nil); !d.Empty() {
+	if d := diff(nil, nil); !d.Empty() {
 		t.Error("Diff(nil,nil).Empty() = false")
 	}
-	if d := Diff(nil, []string{"a"}); d.Empty() {
+	if d := diff(nil, []string{"a"}); d.Empty() {
 		t.Error("non-empty diff reported Empty() = true")
 	}
 }
