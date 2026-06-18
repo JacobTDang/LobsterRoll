@@ -82,6 +82,37 @@ func TestSnapshot(t *testing.T) {
 	}
 }
 
+func TestRun_SignalsReadyAfterSnapshot(t *testing.T) {
+	client := dial(t, &testServer{wallets: []string{addrA}, updates: make(chan *lobsterrollv1.WatchsetUpdate)})
+	set := watchset.New()
+	f := New(client, set, quiet())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ready := make(chan struct{})
+	done := make(chan error, 1)
+	go func() { done <- f.Run(ctx, ready) }()
+
+	select {
+	case <-ready:
+		if !set.Has(common.HexToAddress(addrA)) {
+			t.Fatal("ready signalled but watchset not populated")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("ready not signalled after snapshot")
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run returned %v, want nil", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after cancel")
+	}
+}
+
 func TestStream_AppliesDiffs(t *testing.T) {
 	updates := make(chan *lobsterrollv1.WatchsetUpdate, 2)
 	client := dial(t, &testServer{updates: updates})

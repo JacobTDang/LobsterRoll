@@ -68,8 +68,18 @@ func run(ctx context.Context, log *slog.Logger) error {
 	w := chainwatch.New(ec, set, seen, st, pub, log)
 
 	g, ctx := errgroup.WithContext(ctx)
-	g.Go(func() error { return fd.Run(ctx) })   // keep watchset in sync
-	g.Go(func() error { return w.Run(ctx) })    // detect + publish trades
+	ready := make(chan struct{}) // closed once the first watchset snapshot is applied
+	g.Go(func() error { return fd.Run(ctx, ready) })
+	g.Go(func() error {
+		// Don't backfill against an empty watchset: wait for the first snapshot.
+		select {
+		case <-ready:
+		case <-ctx.Done():
+			return nil
+		}
+		log.Info("watchset ready; starting chain watcher")
+		return w.Run(ctx)
+	})
 	return g.Wait()
 }
 

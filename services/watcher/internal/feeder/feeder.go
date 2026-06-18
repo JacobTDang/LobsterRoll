@@ -53,11 +53,15 @@ func (f *Feeder) Stream(ctx context.Context) error {
 // Run maintains the watchset for the life of ctx: snapshot, then stream, then
 // on any error wait (capped exponential backoff) and resync. Returns nil when
 // ctx is cancelled.
-func (f *Feeder) Run(ctx context.Context) error {
+//
+// ready, if non-nil, is closed once the first watchset snapshot has been applied
+// so a consumer (the watcher) can avoid backfilling against an empty watchset.
+func (f *Feeder) Run(ctx context.Context, ready chan<- struct{}) error {
 	const (
 		base = 1 * time.Second
 		max  = 30 * time.Second
 	)
+	readyClosed := false
 	attempt := 0
 	for {
 		if err := f.Snapshot(ctx); err != nil {
@@ -66,6 +70,10 @@ func (f *Feeder) Run(ctx context.Context) error {
 			}
 			f.log.Warn("watchset snapshot failed", "err", err)
 		} else {
+			if ready != nil && !readyClosed {
+				close(ready)
+				readyClosed = true
+			}
 			attempt = 0 // a good snapshot resets backoff
 			if err := f.Stream(ctx); err != nil && ctx.Err() == nil {
 				f.log.Warn("watchset stream ended", "err", err)
