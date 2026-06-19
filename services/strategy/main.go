@@ -4,11 +4,18 @@ import (
 	"context"
 	"log/slog"
 
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+
+	lobsterrollv1 "github.com/JacobTDang/LobsterRoll/gen/go"
 	"github.com/JacobTDang/LobsterRoll/pkg/bus"
+	"github.com/JacobTDang/LobsterRoll/pkg/sizing"
 	"github.com/JacobTDang/LobsterRoll/pkg/svc"
+	"github.com/JacobTDang/LobsterRoll/services/strategy/internal/book"
 	"github.com/JacobTDang/LobsterRoll/services/strategy/internal/config"
 	"github.com/JacobTDang/LobsterRoll/services/strategy/internal/handler"
 	"github.com/JacobTDang/LobsterRoll/services/strategy/internal/marketdata"
+	"github.com/JacobTDang/LobsterRoll/services/strategy/internal/sizer"
 )
 
 func main() {
@@ -37,7 +44,30 @@ func run(ctx context.Context, log *slog.Logger) error {
 	defer sub.Close()
 
 	src := marketdata.New(cfg.GammaBase, nil)
-	h := handler.New(src, pub, cfg.Policy, cfg.Allowlist, log)
+
+	// Optional sizing engine (Phase B, gated). When enabled, dial the leaderboard
+	// (leader track record) + the CLOB book; the engine sets the stake and can veto.
+	var stakeSizer handler.StakeSizer
+	if cfg.SizingEnabled {
+		lbConn, err := grpc.NewClient(cfg.LeaderboardAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			return err
+		}
+		defer lbConn.Close()
+		stakeSizer = sizer.New(
+			lobsterrollv1.NewLeaderboardClient(lbConn),
+			book.New(cfg.CLOBBase, nil),
+			sizing.Config{
+				KellyFraction: cfg.KellyFraction,
+				EdgeBuffer:    0.02, MaxSpread: 0.02, PerBetFrac: 0.03,
+				MaxExposureFrac: 0.10, DDDerisk: 0.08, DDStop: 0.15,
+				CLVFull: 50, MinStakeUSD: cfg.Policy.MinSizeUSD,
+			},
+			cfg.Bankroll, 0.02, log)
+		log.Info("sizing engine enabled", "bankroll", cfg.Bankroll, "kelly", cfg.KellyFraction)
+	}
+
+	h := handler.New(src, pub, stakeSizer, cfg.Policy, cfg.Allowlist, log)
 
 	if _, err := sub.OnTradeDetected(cfg.QueueGroup, func(td bus.TradeDetected) {
 		// Detach from the shutdown-cancelled ctx (bounded) so a proposal in flight

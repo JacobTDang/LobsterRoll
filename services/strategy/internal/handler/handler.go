@@ -9,6 +9,7 @@ import (
 
 	"github.com/JacobTDang/LobsterRoll/pkg/bus"
 	"github.com/JacobTDang/LobsterRoll/pkg/dedup"
+	"github.com/JacobTDang/LobsterRoll/pkg/sizing"
 	"github.com/JacobTDang/LobsterRoll/services/strategy/internal/decide"
 	"github.com/JacobTDang/LobsterRoll/services/strategy/internal/marketdata"
 )
@@ -23,10 +24,17 @@ type Proposer interface {
 	PublishProposal(o bus.OrderProposal) error
 }
 
+// StakeSizer computes a risk-bounded stake for a signal. *sizer.Sizer satisfies
+// it; nil disables the engine (the decide policy size is used instead).
+type StakeSizer interface {
+	Size(ctx context.Context, td bus.TradeDetected) sizing.Decision
+}
+
 // Handler vets trades and emits proposals.
 type Handler struct {
 	src       MarketSource
 	pub       Proposer
+	sizer     StakeSizer
 	seen      *dedup.GenSet
 	policy    decide.Policy
 	allowlist map[string]bool // condition ids; empty => allow all
@@ -34,8 +42,9 @@ type Handler struct {
 }
 
 // New constructs a Handler. An empty allowlist means all markets are allowed.
-func New(src MarketSource, pub Proposer, policy decide.Policy, allowlist map[string]bool, log *slog.Logger) *Handler {
-	return &Handler{src: src, pub: pub, seen: dedup.NewGen(), policy: policy, allowlist: allowlist, log: log}
+// sizer may be nil to disable the sizing engine (the policy size is used).
+func New(src MarketSource, pub Proposer, sizer StakeSizer, policy decide.Policy, allowlist map[string]bool, log *slog.Logger) *Handler {
+	return &Handler{src: src, pub: pub, sizer: sizer, seen: dedup.NewGen(), policy: policy, allowlist: allowlist, log: log}
 }
 
 // Handle vets one detected trade. Transient market-data errors are retryable
@@ -78,6 +87,18 @@ func (h *Handler) Handle(ctx context.Context, td bus.TradeDetected) {
 		h.log.Info("skip", "reason", out.Reason, "wallet", td.Wallet, "token", td.TokenID)
 		return
 	}
+
+	// When the sizing engine is enabled, it sets the stake (and can veto). The
+	// trader still enforces hard caps on top.
+	if h.sizer != nil {
+		d := h.sizer.Size(ctx, td)
+		if d.Reason != "" {
+			h.log.Info("skip: sizing", "reason", d.Reason, "wallet", td.Wallet, "token", td.TokenID)
+			return
+		}
+		out.Proposal.SizeUSD = d.Stake
+	}
+
 	if err := h.pub.PublishProposal(out.Proposal); err != nil {
 		h.log.Error("publish proposal failed", "id", out.Proposal.ID, "err", err)
 		return

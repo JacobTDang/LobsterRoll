@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/JacobTDang/LobsterRoll/services/strategy/internal/book"
 	"github.com/JacobTDang/LobsterRoll/services/strategy/internal/decide"
 	"github.com/JacobTDang/LobsterRoll/services/strategy/internal/marketdata"
 )
@@ -18,11 +19,19 @@ type Config struct {
 	NATSURL    string
 	GammaBase  string
 	QueueGroup string
+
+	// Sizing engine (Phase B; off by default — gated behind execution eligibility).
+	SizingEnabled   bool
+	Bankroll        float64
+	KellyFraction   float64
+	LeaderboardAddr string // dial leaderboard for leader track record
+	CLOBBase        string // CLOB host for the order book
 }
 
 const (
-	defNATSURL    = "nats://nats:4222"
-	defQueueGroup = "strategy"
+	defNATSURL         = "nats://nats:4222"
+	defQueueGroup      = "strategy"
+	defLeaderboardAddr = "leaderboard:50051"
 )
 
 // Load resolves config using getenv, applying defaults and validating.
@@ -62,6 +71,14 @@ func Load(getenv func(string) string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	bankroll, err := floatEnv(getenv, "BANKROLL_USD", 0)
+	if err != nil {
+		return Config{}, err
+	}
+	kelly, err := floatEnv(getenv, "KELLY_FRACTION", 0.25)
+	if err != nil {
+		return Config{}, err
+	}
 
 	cfg := Config{
 		Policy: decide.Policy{
@@ -73,13 +90,26 @@ func Load(getenv func(string) string) (Config, error) {
 			MaxSlippage:     slipCents / 100.0,
 			MinLiquidityUSD: minLiq,
 		},
-		Allowlist:  parseAllowlist(getenv("STRATEGY_ALLOWLIST")),
-		NATSURL:    orDefault(getenv("NATS_URL"), defNATSURL),
-		GammaBase:  orDefault(getenv("STRATEGY_GAMMA_BASE"), marketdata.DefaultBaseURL),
-		QueueGroup: orDefault(getenv("STRATEGY_QUEUE_GROUP"), defQueueGroup),
+		Allowlist:       parseAllowlist(getenv("STRATEGY_ALLOWLIST")),
+		NATSURL:         orDefault(getenv("NATS_URL"), defNATSURL),
+		GammaBase:       orDefault(getenv("STRATEGY_GAMMA_BASE"), marketdata.DefaultBaseURL),
+		QueueGroup:      orDefault(getenv("STRATEGY_QUEUE_GROUP"), defQueueGroup),
+		SizingEnabled:   strings.EqualFold(getenv("STRATEGY_SIZING_ENABLED"), "true"),
+		Bankroll:        bankroll,
+		KellyFraction:   kelly,
+		LeaderboardAddr: orDefault(getenv("LEADERBOARD_GRPC_ADDR"), defLeaderboardAddr),
+		CLOBBase:        orDefault(getenv("STRATEGY_CLOB_BASE"), book.DefaultBaseURL),
 	}
 	if cfg.Policy.MaxSizeUSD <= 0 {
 		return Config{}, fmt.Errorf("STRATEGY_MAX_SIZE_USD must be > 0")
+	}
+	if cfg.SizingEnabled {
+		if cfg.Bankroll <= 0 {
+			return Config{}, fmt.Errorf("BANKROLL_USD must be > 0 when STRATEGY_SIZING_ENABLED")
+		}
+		if cfg.KellyFraction <= 0 || cfg.KellyFraction > 1 {
+			return Config{}, fmt.Errorf("KELLY_FRACTION must be in (0,1], got %v", cfg.KellyFraction)
+		}
 	}
 	return cfg, nil
 }

@@ -43,7 +43,7 @@ func TestPipeline_EndToEnd(t *testing.T) {
 	}
 	defer sub.Close()
 
-	h := New(&fakeSrc{data: goodData(), ok: true}, pub, policy, nil, quiet())
+	h := New(&fakeSrc{data: goodData(), ok: true}, pub, nil, policy, nil, quiet())
 	ctx := context.Background()
 	if _, err := sub.OnTradeDetected("strategy", func(td bus.TradeDetected) { h.Handle(ctx, td) }); err != nil {
 		t.Fatalf("OnTradeDetected: %v", err)

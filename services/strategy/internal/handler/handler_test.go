@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/JacobTDang/LobsterRoll/pkg/bus"
+	"github.com/JacobTDang/LobsterRoll/pkg/sizing"
 	"github.com/JacobTDang/LobsterRoll/services/strategy/internal/decide"
 	"github.com/JacobTDang/LobsterRoll/services/strategy/internal/marketdata"
 )
@@ -59,7 +60,7 @@ func goodData() marketdata.Data {
 
 func TestHandle_Proposes(t *testing.T) {
 	pub := &fakeProposer{}
-	h := New(&fakeSrc{data: goodData(), ok: true}, pub, policy, nil, quiet())
+	h := New(&fakeSrc{data: goodData(), ok: true}, pub, nil, policy, nil, quiet())
 	h.Handle(context.Background(), trade)
 
 	if pub.count() != 1 {
@@ -71,9 +72,34 @@ func TestHandle_Proposes(t *testing.T) {
 	}
 }
 
+type fakeSizer struct{ d sizing.Decision }
+
+func (f fakeSizer) Size(context.Context, bus.TradeDetected) sizing.Decision { return f.d }
+
+func TestHandle_SizerSetsStake(t *testing.T) {
+	pub := &fakeProposer{}
+	h := New(&fakeSrc{data: goodData(), ok: true}, pub, fakeSizer{d: sizing.Decision{Stake: 73}}, policy, nil, quiet())
+	h.Handle(context.Background(), trade)
+	if pub.count() != 1 {
+		t.Fatalf("proposals = %d, want 1", pub.count())
+	}
+	if pub.got[0].SizeUSD != 73 { // engine size overrides the policy's 25
+		t.Errorf("SizeUSD = %v, want 73 (sizer override)", pub.got[0].SizeUSD)
+	}
+}
+
+func TestHandle_SizerVetoSkips(t *testing.T) {
+	pub := &fakeProposer{}
+	h := New(&fakeSrc{data: goodData(), ok: true}, pub, fakeSizer{d: sizing.Decision{Reason: "no edge"}}, policy, nil, quiet())
+	h.Handle(context.Background(), trade)
+	if pub.count() != 0 {
+		t.Fatalf("proposals = %d, want 0 (sizer vetoed)", pub.count())
+	}
+}
+
 func TestHandle_Idempotent(t *testing.T) {
 	pub := &fakeProposer{}
-	h := New(&fakeSrc{data: goodData(), ok: true}, pub, policy, nil, quiet())
+	h := New(&fakeSrc{data: goodData(), ok: true}, pub, nil, policy, nil, quiet())
 	h.Handle(context.Background(), trade)
 	h.Handle(context.Background(), trade) // redelivery
 	if pub.count() != 1 {
@@ -83,7 +109,7 @@ func TestHandle_Idempotent(t *testing.T) {
 
 func TestHandle_SkipNotFound(t *testing.T) {
 	pub := &fakeProposer{}
-	New(&fakeSrc{ok: false}, pub, policy, nil, quiet()).Handle(context.Background(), trade)
+	New(&fakeSrc{ok: false}, pub, nil, policy, nil, quiet()).Handle(context.Background(), trade)
 	if pub.count() != 0 {
 		t.Fatalf("proposals = %d, want 0 (market not found)", pub.count())
 	}
@@ -93,7 +119,7 @@ func TestHandle_SkipSlippage(t *testing.T) {
 	d := goodData()
 	d.CurrentPrice = 1.00 // far above whale 0.95 + 0.03
 	pub := &fakeProposer{}
-	New(&fakeSrc{data: d, ok: true}, pub, policy, nil, quiet()).Handle(context.Background(), trade)
+	New(&fakeSrc{data: d, ok: true}, pub, nil, policy, nil, quiet()).Handle(context.Background(), trade)
 	if pub.count() != 0 {
 		t.Fatalf("proposals = %d, want 0 (slippage)", pub.count())
 	}
@@ -102,7 +128,7 @@ func TestHandle_SkipSlippage(t *testing.T) {
 func TestHandle_Allowlist(t *testing.T) {
 	pub := &fakeProposer{}
 	// Allowlist that does NOT include the market's condition id.
-	h := New(&fakeSrc{data: goodData(), ok: true}, pub, policy, map[string]bool{"0xother": true}, quiet())
+	h := New(&fakeSrc{data: goodData(), ok: true}, pub, nil, policy, map[string]bool{"0xother": true}, quiet())
 	h.Handle(context.Background(), trade)
 	if pub.count() != 0 {
 		t.Fatalf("proposals = %d, want 0 (not in allowlist)", pub.count())
@@ -114,7 +140,7 @@ func TestHandle_AllowlistCaseInsensitive(t *testing.T) {
 	d.ConditionID = "0xABCDEF" // gamma could return mixed case
 	pub := &fakeProposer{}
 	// Allowlist stored lowercase (as config.parseAllowlist produces).
-	h := New(&fakeSrc{data: d, ok: true}, pub, policy, map[string]bool{"0xabcdef": true}, quiet())
+	h := New(&fakeSrc{data: d, ok: true}, pub, nil, policy, map[string]bool{"0xabcdef": true}, quiet())
 	h.Handle(context.Background(), trade)
 	if pub.count() != 1 {
 		t.Fatalf("proposals = %d, want 1 (case-insensitive allowlist match)", pub.count())
@@ -124,7 +150,7 @@ func TestHandle_AllowlistCaseInsensitive(t *testing.T) {
 func TestHandle_TransientErrorRetryable(t *testing.T) {
 	src := &fakeSrc{err: errors.New("gamma down")}
 	pub := &fakeProposer{}
-	h := New(src, pub, policy, nil, quiet())
+	h := New(src, pub, nil, policy, nil, quiet())
 	h.Handle(context.Background(), trade) // fails transiently, not marked seen
 	if pub.count() != 0 {
 		t.Fatalf("proposals = %d, want 0 on error", pub.count())
