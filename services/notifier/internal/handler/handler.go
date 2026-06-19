@@ -19,6 +19,7 @@ import (
 	"github.com/JacobTDang/LobsterRoll/pkg/dedup"
 	"github.com/JacobTDang/LobsterRoll/pkg/metrics"
 	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/format"
+	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/positions"
 )
 
 var mAlertsSent = metrics.NewCounter("lobsterroll_notifier_alerts_sent_total", "alerts delivered to Telegram")
@@ -46,8 +47,9 @@ type Handler struct {
 	stats    WhaleStatsLookuper
 	sender   Sender
 	chatID   string
-	dedup    *dedup.TTLSet // exact-trade dedup: suppresses re-emits of the SAME fill
-	cooldown *dedup.TTLSet // burst cooldown: collapses repeated wallet+market+side trades
+	dedup    *dedup.TTLSet    // exact-trade dedup: suppresses re-emits of the SAME fill
+	cooldown *dedup.TTLSet    // burst cooldown: collapses repeated wallet+market+side trades
+	myPos    *positions.Cache // nil => position-exit alerts disabled (no USER_WALLET)
 	now      func() time.Time
 	log      *slog.Logger
 }
@@ -55,9 +57,10 @@ type Handler struct {
 // New constructs a Handler. stats may be nil to disable whale track-record
 // enrichment (alerts then render without the stats line). dd dedups exact
 // re-emitted trades; cooldown (may be nil) collapses a whale's repeated trades
-// on the same market+side into one alert per cooldown window.
-func New(enrich Enricher, stats WhaleStatsLookuper, sender Sender, chatID string, dd, cooldown *dedup.TTLSet, log *slog.Logger) *Handler {
-	return &Handler{enrich: enrich, stats: stats, sender: sender, chatID: chatID, dedup: dd, cooldown: cooldown, now: time.Now, log: log}
+// on the same market+side into one alert per cooldown window. myPos (may be nil)
+// enables priority alerts when a whale trades a market the user holds.
+func New(enrich Enricher, stats WhaleStatsLookuper, sender Sender, chatID string, dd, cooldown *dedup.TTLSet, myPos *positions.Cache, log *slog.Logger) *Handler {
+	return &Handler{enrich: enrich, stats: stats, sender: sender, chatID: chatID, dedup: dd, cooldown: cooldown, myPos: myPos, now: time.Now, log: log}
 }
 
 // tradeKey uniquely identifies a detected trade. The on-chain (tx, logIndex)
@@ -122,6 +125,44 @@ func (h *Handler) Handle(ctx context.Context, td bus.TradeDetected) {
 	}
 	mAlertsSent.Inc()
 	h.log.Info("alert sent", "wallet", td.Wallet, "side", td.Side, "size", td.Size)
+
+	h.maybePositionAlert(ctx, td, ws)
+}
+
+var mPositionAlerts = metrics.NewCounter("lobsterroll_notifier_position_alerts_total", "priority alerts on markets the user holds")
+
+// maybePositionAlert sends a separate priority alert when this whale trade
+// touches a market the user holds (whale exiting your outcome, or buying against
+// you). No-op when position tracking is disabled. Deduped independently of the
+// normal alert via a "mypos:" key prefix.
+func (h *Handler) maybePositionAlert(ctx context.Context, td bus.TradeDetected, ws format.WhaleStats) {
+	if h.myPos == nil {
+		return
+	}
+	hold, kind, fire := h.myPos.Match(td.TokenID, td.Side, td.Wallet)
+	if !fire {
+		return
+	}
+	banner := "⚠️ WHALE EXITING A MARKET YOU HOLD"
+	if kind == positions.Opposite {
+		banner = "🆚 WHALE BETTING AGAINST YOUR POSITION"
+	}
+	key := "mypos:" + tradeKey(td)
+	if h.dedup != nil && !h.dedup.Add(key) {
+		return
+	}
+	text := format.FormatMyPositionAlert(td, format.MyPosition{
+		Title: hold.Title, Outcome: hold.Outcome, Slug: hold.Slug, CurrentValue: hold.CurrentValue, Banner: banner,
+	}, ws)
+	if err := h.sender.Send(ctx, h.chatID, text); err != nil {
+		if h.dedup != nil {
+			h.dedup.Remove(key)
+		}
+		h.log.Error("send position alert failed", "wallet", td.Wallet, "token", td.TokenID, "err", err)
+		return
+	}
+	mPositionAlerts.Inc()
+	h.log.Info("position alert sent", "kind", kind, "token", td.TokenID, "title", hold.Title)
 }
 
 // resolveMarket enriches a tokenId to market context, degrading gracefully: an

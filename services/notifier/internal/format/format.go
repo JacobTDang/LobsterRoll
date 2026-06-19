@@ -53,17 +53,8 @@ func FormatAlert(td bus.TradeDetected, m Market, ws WhaleStats) string {
 	if m.Found && m.EndDateUnix > 0 {
 		lines = append(lines, "🏁 game "+time.Unix(m.EndDateUnix, 0).UTC().Format("2006-01-02 15:04 UTC"))
 	}
-	if ws.OK {
-		fresh := " ✅"
-		if !ws.Fresh {
-			fresh = " ⚠️cooling"
-		}
-		clvSeg := ""
-		if ws.CLVN > 0 { // CLV is sparse (tracked-universe-only); show only when observed
-			clvSeg = fmt.Sprintf(" · CLV %+.1f%% (n=%d)", ws.AvgCLV*100, ws.CLVN)
-		}
-		lines = append(lines, fmt.Sprintf("👤 SKILL %d%s · %d%% win · %s ROI%s · realized %s · %s portfolio (%d mkts)",
-			ws.SkillScore, fresh, int(ws.WinRate*100+0.5), signedPct(ws.ROI), clvSeg, signedMoney(ws.RealizedPnlUSD), abbrevMoney(ws.PortfolioUSD), ws.ResolvedMarkets))
+	if line, ok := statsLine(ws); ok {
+		lines = append(lines, line)
 	}
 	lines = append(lines, fmt.Sprintf("💵 $%s  ·  %s @ $%s", notional(td.Size, td.Price), td.Size, td.Price))
 	if !td.ObservedAt.IsZero() {
@@ -71,6 +62,55 @@ func FormatAlert(td bus.TradeDetected, m Market, ws WhaleStats) string {
 	}
 	if m.Found && m.Slug != "" {
 		lines = append(lines, "📊 https://polymarket.com/event/"+m.Slug)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// statsLine renders the whale track-record line (SKILL/win/ROI/CLV/portfolio),
+// or ok=false when no stats are available. Shared by the trade and position alerts.
+func statsLine(ws WhaleStats) (string, bool) {
+	if !ws.OK {
+		return "", false
+	}
+	fresh := " ✅"
+	if !ws.Fresh {
+		fresh = " ⚠️cooling"
+	}
+	clvSeg := ""
+	if ws.CLVN > 0 { // CLV is sparse (tracked-universe-only); show only when observed
+		clvSeg = fmt.Sprintf(" · CLV %+.1f%% (n=%d)", ws.AvgCLV*100, ws.CLVN)
+	}
+	return fmt.Sprintf("👤 SKILL %d%s · %d%% win · %s ROI%s · realized %s · %s portfolio (%d mkts)",
+		ws.SkillScore, fresh, int(ws.WinRate*100+0.5), signedPct(ws.ROI), clvSeg,
+		signedMoney(ws.RealizedPnlUSD), abbrevMoney(ws.PortfolioUSD), ws.ResolvedMarkets), true
+}
+
+// MyPosition is the held-position context for a priority alert.
+type MyPosition struct {
+	Title        string
+	Outcome      string
+	Slug         string
+	CurrentValue float64
+	Banner       string // the caller-chosen headline (e.g. "⚠️ WHALE EXITING A MARKET YOU HOLD")
+}
+
+// FormatMyPositionAlert renders the priority alert fired when a tracked whale
+// trades a market the user holds.
+func FormatMyPositionAlert(td bus.TradeDetected, pos MyPosition, ws WhaleStats) string {
+	side := "SELL"
+	if strings.EqualFold(td.Side, "buy") {
+		side = "BUY"
+	}
+	lines := []string{
+		pos.Banner,
+		fmt.Sprintf("%s → you hold %s (%s)", pos.Title, pos.Outcome, abbrevMoney(pos.CurrentValue)),
+		fmt.Sprintf("whale %s %s $%s @ $%s", shortenHex(td.Wallet), side, notional(td.Size, td.Price), td.Price),
+	}
+	if line, ok := statsLine(ws); ok {
+		lines = append(lines, line)
+	}
+	if pos.Slug != "" {
+		lines = append(lines, "📊 https://polymarket.com/event/"+pos.Slug)
 	}
 	return strings.Join(lines, "\n")
 }

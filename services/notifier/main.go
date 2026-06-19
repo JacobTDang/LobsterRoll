@@ -18,6 +18,7 @@ import (
 	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/approval"
 	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/config"
 	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/handler"
+	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/positions"
 	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/telegram"
 )
 
@@ -67,7 +68,17 @@ func run(ctx context.Context, log *slog.Logger) error {
 	if cfg.AlertCooldown > 0 {
 		cooldown = dedup.New(cfg.AlertCooldown)
 	}
-	alerts := handler.New(enrich, leaderboard, tg, cfg.TelegramChatID, dedup.New(cfg.AlertDedupTTL), cooldown, log)
+
+	// Position-exit alerts: enabled only when a public USER_WALLET is configured.
+	var myPos *positions.Cache
+	var posClient *positions.Client
+	if cfg.UserWallet != "" {
+		myPos = positions.NewCache(cfg.UserWallet)
+		posClient = positions.New(cfg.DataAPIBase, nil)
+		log.Info("position-exit alerts enabled", "wallet", cfg.UserWallet, "poll", cfg.MyPositionsPoll)
+	}
+
+	alerts := handler.New(enrich, leaderboard, tg, cfg.TelegramChatID, dedup.New(cfg.AlertDedupTTL), cooldown, myPos, log)
 	mgr := approval.New(tg, pub, cfg.TelegramChatID, log)
 
 	// One-way alerts on every detected trade.
@@ -97,8 +108,38 @@ func run(ctx context.Context, log *slog.Logger) error {
 
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return pollUpdates(ctx, tg, mgr, log) })
+	if myPos != nil {
+		g.Go(func() error { return pollPositions(ctx, posClient, myPos, cfg.UserWallet, cfg.MyPositionsPoll, log) })
+	}
 	log.Info("notifier listening (alerts + approval gate)")
 	return g.Wait()
+}
+
+// pollPositions refreshes the user's open positions on an interval (and once at
+// startup). A fetch error keeps the last good snapshot rather than going dark.
+func pollPositions(ctx context.Context, c *positions.Client, cache *positions.Cache, wallet string, every time.Duration, log *slog.Logger) error {
+	refresh := func() {
+		fctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+		ps, err := c.Fetch(fctx, wallet)
+		if err != nil {
+			log.Warn("positions refresh failed; keeping last snapshot", "err", err)
+			return
+		}
+		cache.Replace(ps)
+		log.Info("positions refreshed", "count", len(ps))
+	}
+	refresh()
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-t.C:
+			refresh()
+		}
+	}
 }
 
 // pollUpdates long-polls Telegram and dispatches button taps and commands.

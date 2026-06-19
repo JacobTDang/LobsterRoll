@@ -23,15 +23,18 @@ func TestLoad_Defaults(t *testing.T) {
 
 func TestLoad_Overrides(t *testing.T) {
 	cfg, err := Load(env(map[string]string{
-		"TELEGRAM_BOT_TOKEN":    "tok",
-		"TELEGRAM_CHAT_ID":      "42",
-		"TELEGRAM_BASE_URL":     "http://localhost:8099",
-		"NATS_URL":              "nats://localhost:4222",
-		"ENRICHMENT_GRPC_ADDR":  "localhost:50052",
-		"LEADERBOARD_GRPC_ADDR": "localhost:50051",
-		"NOTIFIER_QUEUE_GROUP":  "n2",
-		"ALERT_DEDUP_TTL":       "1h",
-		"ALERT_COOLDOWN":        "30m",
+		"TELEGRAM_BOT_TOKEN":         "tok",
+		"TELEGRAM_CHAT_ID":           "42",
+		"TELEGRAM_BASE_URL":          "http://localhost:8099",
+		"NATS_URL":                   "nats://localhost:4222",
+		"ENRICHMENT_GRPC_ADDR":       "localhost:50052",
+		"LEADERBOARD_GRPC_ADDR":      "localhost:50051",
+		"NOTIFIER_QUEUE_GROUP":       "n2",
+		"ALERT_DEDUP_TTL":            "1h",
+		"ALERT_COOLDOWN":             "30m",
+		"USER_WALLET":                "0xme",
+		"DATA_API_BASE":              "http://localhost:8100",
+		"MY_POSITIONS_POLL_INTERVAL": "2m",
 	}))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -41,6 +44,7 @@ func TestLoad_Overrides(t *testing.T) {
 		NATSURL: "nats://localhost:4222", EnrichmentAddr: "localhost:50052",
 		LeaderboardAddr: "localhost:50051", QueueGroup: "n2", AlertDedupTTL: time.Hour,
 		AlertCooldown: 30 * time.Minute,
+		UserWallet:    "0xme", DataAPIBase: "http://localhost:8100", MyPositionsPoll: 2 * time.Minute,
 	}
 	if cfg != want {
 		t.Fatalf("got %+v, want %+v", cfg, want)

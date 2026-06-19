@@ -18,6 +18,9 @@ type Config struct {
 	QueueGroup      string
 	AlertDedupTTL   time.Duration // suppress duplicate (same-fill) trade alerts for this long
 	AlertCooldown   time.Duration // collapse repeated wallet+market+side alerts; 0 = off
+	UserWallet      string        // public wallet to track for position-exit alerts; "" = disabled
+	DataAPIBase     string        // Polymarket data-api host (positions); "" = default
+	MyPositionsPoll time.Duration // how often to refresh the user's positions
 }
 
 const (
@@ -27,6 +30,7 @@ const (
 	defQueueGroup      = "notifier"
 	defAlertDedupTTL   = 24 * time.Hour
 	defAlertCooldown   = 15 * time.Minute
+	defMyPositionsPoll = 5 * time.Minute
 )
 
 // Load resolves config using getenv, applying defaults and validating.
@@ -41,6 +45,16 @@ func Load(getenv func(string) string) (Config, error) {
 		QueueGroup:      orDefault(getenv("NOTIFIER_QUEUE_GROUP"), defQueueGroup),
 		AlertDedupTTL:   defAlertDedupTTL,
 		AlertCooldown:   defAlertCooldown,
+		UserWallet:      getenv("USER_WALLET"),
+		DataAPIBase:     getenv("DATA_API_BASE"),
+		MyPositionsPoll: defMyPositionsPoll,
+	}
+	if v := getenv("MY_POSITIONS_POLL_INTERVAL"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("MY_POSITIONS_POLL_INTERVAL: %w", err)
+		}
+		cfg.MyPositionsPoll = d
 	}
 	if v := getenv("ALERT_DEDUP_TTL"); v != "" {
 		d, err := time.ParseDuration(v)
@@ -67,6 +81,9 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	if cfg.AlertCooldown < 0 {
 		return Config{}, fmt.Errorf("ALERT_COOLDOWN must be >= 0, got %s", cfg.AlertCooldown)
+	}
+	if cfg.UserWallet != "" && cfg.MyPositionsPoll <= 0 {
+		return Config{}, fmt.Errorf("MY_POSITIONS_POLL_INTERVAL must be > 0 when USER_WALLET is set, got %s", cfg.MyPositionsPoll)
 	}
 	return cfg, nil
 }

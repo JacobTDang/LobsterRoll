@@ -50,6 +50,12 @@ data:
   # ---- notifier ----
   ALERT_DEDUP_TTL: "24h"  # suppress re-emits of the exact same fill for this long
   ALERT_COOLDOWN: "15m"   # collapse a whale's repeated trades on one market+side; 0 = off
+  # Position-exit alerts: set USER_WALLET to your PUBLIC Polymarket address to get a
+  # priority alert when a tracked whale exits a market you hold (or buys against you).
+  # Empty = disabled. Read-only public data-api; no keys involved.
+  USER_WALLET: ""
+  DATA_API_BASE: "https://data-api.polymarket.com"
+  MY_POSITIONS_POLL_INTERVAL: "5m"
 
   # ---- strategy sizing engine (Phase B; off by default — gated on eligibility) ----
   # See docs/DEPLOY-trader-activation.md before enabling. When true, set caps below
