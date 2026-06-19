@@ -68,6 +68,7 @@ func run(ctx context.Context, log *slog.Logger) error {
 		st, srv, clvClient,
 		syncer.StatsConfig{
 			Metric:          cfg.Metric,
+			Window:          cfg.Window,
 			CandidateTopK:   cfg.CandidateTopK,
 			MaxCandidates:   cfg.StatsMaxCandidates,
 			MaxActivity:     cfg.StatsMaxActivity,

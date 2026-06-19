@@ -14,8 +14,10 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 
 	pmapi "github.com/JacobTDang/LobsterRoll/pkg/dataapi"
+	"github.com/JacobTDang/LobsterRoll/pkg/metrics"
 )
 
 // userAgent identifies us to upstream WAFs (the default Go UA gets blocked).
@@ -23,6 +25,11 @@ const userAgent = "lobsterroll-leaderboard/1.0"
 
 // activityPageSize is the per-request /activity page size the host accepts.
 const activityPageSize = 500
+
+// mActivityCapped counts crawls that hit the maxRows safety ceiling — i.e. the
+// wallet has MORE history than we fetched, so its stats are computed on a partial
+// record. Surfaced so that truncation (and any resulting skew) is observable.
+var mActivityCapped = metrics.NewCounter("lobsterroll_leaderboard_activity_capped_total", "wallet activity crawls that hit the maxRows ceiling (incomplete history)")
 
 // Activity is one row from /activity. We only consume the fields the win-rate
 // algorithm needs; unknown fields are ignored.
@@ -46,15 +53,19 @@ func New(baseURL string, hc *http.Client) *Client {
 	return &Client{api: pmapi.New(baseURL, userAgent, hc)}
 }
 
-// Activity returns up to maxRows activity rows for wallet, paginating by offset
-// in pages of activityPageSize until a short (final) page or maxRows is reached.
-// A non-positive maxRows returns no rows.
+// Activity returns the wallet's activity rows, paginating in pages of
+// activityPageSize until the history is exhausted (a short final page). maxRows is
+// a SAFETY CEILING, not a target: it bounds a pathological wallet, and hitting it
+// is recorded (mActivityCapped) so the resulting partial-history skew is visible.
+// We never slice mid-page, since stats.Compute groups by conditionId and a cut in
+// the middle of a market's events corrupts its cost basis. A non-positive maxRows
+// returns no rows.
 func (c *Client) Activity(ctx context.Context, wallet string, maxRows int) ([]Activity, error) {
 	if maxRows <= 0 {
 		return nil, nil
 	}
 	var all []Activity
-	for offset := 0; len(all) < maxRows; offset += activityPageSize {
+	for offset := 0; ; offset += activityPageSize {
 		q := url.Values{}
 		q.Set("user", wallet)
 		q.Set("limit", strconv.Itoa(activityPageSize))
@@ -65,15 +76,14 @@ func (c *Client) Activity(ctx context.Context, wallet string, maxRows int) ([]Ac
 			return nil, fmt.Errorf("data-api /activity: %w", err)
 		}
 		all = append(all, page...)
-		// A short page (fewer than a full page) means we've reached the end.
 		if len(page) < activityPageSize {
-			break
+			return all, nil // exhausted: full history fetched
+		}
+		if len(all) >= maxRows {
+			mActivityCapped.Inc() // more history exists than the ceiling allows
+			return all, nil
 		}
 	}
-	if len(all) > maxRows {
-		all = all[:maxRows]
-	}
-	return all, nil
 }
 
 // valueRow is one element of the /value response array.
@@ -92,8 +102,13 @@ func (c *Client) Value(ctx context.Context, wallet string) (float64, error) {
 	if err := c.api.GetJSON(ctx, "/value", q, &rows); err != nil {
 		return 0, fmt.Errorf("data-api /value: %w", err)
 	}
-	if len(rows) == 0 {
-		return 0, nil
+	// Return the row that actually matches the queried wallet, not blindly rows[0]
+	// — a mismatched-but-present row would otherwise bypass the no-portfolio
+	// fallback and feed a wrong figure to the MinPortfolioUSD gate.
+	for _, r := range rows {
+		if strings.EqualFold(r.User, wallet) {
+			return r.Value, nil
+		}
 	}
-	return rows[0].Value, nil
+	return 0, nil
 }

@@ -114,7 +114,11 @@ func (s *Store) UpsertStats(ctx context.Context, r StatsRecord) error {
 		   traded_markets=excluded.traded_markets,
 		   computed_unix=excluded.computed_unix,
 		   roi=excluded.roi,
-		   fresh=excluded.fresh`,
+		   fresh=excluded.fresh,
+		   avg_clv=0,
+		   clv_n=0`, // reset CLV every refresh so a wallet that drops out of
+		// pricewatch can't keep serving a stale CLV; SetWalletCLV repopulates it
+		// in the same refresh for wallets pricewatch still returns.
 		r.Wallet, r.WinRate, r.ResolvedMarkets, r.RealizedPnL, r.Profit30D,
 		r.PortfolioValue, r.TradedMarkets, r.ComputedUnix, r.ROI, b2i(r.Fresh))
 	if err != nil {

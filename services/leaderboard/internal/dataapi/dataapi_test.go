@@ -81,8 +81,9 @@ func TestActivity_Paginates(t *testing.T) {
 	}
 }
 
-// maxRows caps both the request loop and the returned slice.
-func TestActivity_RespectsMaxRows(t *testing.T) {
+// maxRows is a page-boundary SAFETY CEILING, not an exact slice: it must never
+// cut mid-page (which would corrupt a market's cost basis in stats.Compute).
+func TestActivity_StopsAtCeilingOnPageBoundary(t *testing.T) {
 	var calls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt32(&calls, 1)
@@ -97,13 +98,14 @@ func TestActivity_RespectsMaxRows(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	// maxRows 750 -> needs 2 pages (1000 fetched) then truncated to 750.
+	// maxRows 750 with 500/page: fetches 2 full pages (1000) then stops at the page
+	// boundary — returns 1000, NOT a mid-page slice of 750.
 	acts, err := New(srv.URL, srv.Client()).Activity(context.Background(), "0xabc", 750)
 	if err != nil {
 		t.Fatalf("Activity: %v", err)
 	}
-	if len(acts) != 750 {
-		t.Fatalf("len = %d, want 750 (truncated to maxRows)", len(acts))
+	if len(acts) != 1000 {
+		t.Fatalf("len = %d, want 1000 (page boundary, never sliced mid-page)", len(acts))
 	}
 	if c := atomic.LoadInt32(&calls); c != 2 {
 		t.Errorf("page fetches = %d, want 2", c)
@@ -142,6 +144,22 @@ func TestValue(t *testing.T) {
 	}
 	if v != 12345.67 {
 		t.Errorf("Value = %v, want 12345.67", v)
+	}
+}
+
+func TestValue_NoMatchingWalletReturnsZero(t *testing.T) {
+	// A present-but-mismatched row must NOT be returned (it would bypass the
+	// no-portfolio fallback and feed a wrong figure to the portfolio gate).
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[{"user":"0xSOMEONEELSE","value":999999}]`))
+	}))
+	defer srv.Close()
+	v, err := New(srv.URL, srv.Client()).Value(context.Background(), "0xabc")
+	if err != nil {
+		t.Fatalf("Value: %v", err)
+	}
+	if v != 0 {
+		t.Errorf("Value = %v, want 0 (no row matches queried wallet)", v)
 	}
 }
 

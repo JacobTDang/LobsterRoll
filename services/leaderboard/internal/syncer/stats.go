@@ -59,6 +59,7 @@ type CLVFetcher interface {
 // StatsConfig bounds the stats crawl and tunes selection.
 type StatsConfig struct {
 	Metric          client.Metric // metric used to size candidate amounts (e.g. pnl)
+	Window          client.Window // operator-configured window, unioned into the candidate pool
 	CandidateTopK   int           // top-K per window pulled into the candidate pool
 	MaxCandidates   int           // cap on candidates crawled per refresh
 	MaxActivity     int           // cap on activity rows fetched per wallet
@@ -83,9 +84,24 @@ var (
 // genuinely empty). Treated as a failed refresh that must not wipe the watchset.
 var errAllWindowsFailed = errors.New("all candidate windows failed")
 
-// candidateWindows are the leaderboard windows unioned into the candidate pool.
-// 7d/30d/all favors consistent performers over single-day spikes.
-var candidateWindows = []client.Window{"7d", "30d", "all"}
+// defaultCandidateWindows are the leaderboard windows always unioned into the
+// candidate pool. 7d/30d/all favors consistent performers over single-day spikes.
+var defaultCandidateWindows = []client.Window{"7d", "30d", "all"}
+
+// candidateWindows is the operator-configured Window unioned with the defaults
+// (deduped). This is what gives LEADERBOARD_WINDOW a real effect on the pool —
+// previously it was validated and logged but never used.
+func (s *StatsSyncer) candidateWindows() []client.Window {
+	out := make([]client.Window, 0, len(defaultCandidateWindows)+1)
+	seen := make(map[client.Window]bool)
+	for _, w := range append([]client.Window{s.cfg.Window}, defaultCandidateWindows...) {
+		if w != "" && !seen[w] {
+			seen[w] = true
+			out = append(out, w)
+		}
+	}
+	return out
+}
 
 // StatsSyncer periodically builds a candidate pool from the leaderboard, crawls
 // each candidate's data-api history into consistency stats, persists them, and
@@ -136,7 +152,7 @@ func (s *StatsSyncer) candidatePool(ctx context.Context) ([]selection.Candidate,
 	seen := make(map[string]struct{})
 	var anyOK bool
 
-	for _, w := range candidateWindows {
+	for _, w := range s.candidateWindows() {
 		entries, err := s.cand.FetchEntries(ctx, s.cfg.Metric, w, s.cfg.CandidateTopK)
 		if err != nil {
 			s.log.Warn("candidate window fetch failed", "window", w, "err", err)
@@ -305,6 +321,9 @@ func (s *StatsSyncer) enrichCLV(ctx context.Context, statsByWallet map[string]se
 	wallets := make([]string, 0, len(statsByWallet))
 	for w := range statsByWallet {
 		wallets = append(wallets, w)
+	}
+	if len(wallets) == 0 {
+		return // nothing to enrich — skip the empty round-trip
 	}
 	resp, err := s.clv.GetWalletCLV(ctx, &lobsterrollv1.GetWalletCLVRequest{Wallets: wallets})
 	if err != nil {
