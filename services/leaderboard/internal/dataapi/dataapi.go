@@ -10,18 +10,13 @@ package dataapi
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
-	"time"
 
-	"github.com/JacobTDang/LobsterRoll/pkg/httpx"
+	pmapi "github.com/JacobTDang/LobsterRoll/pkg/dataapi"
 )
-
-// DefaultBaseURL is the public Polymarket data-api host.
-const DefaultBaseURL = "https://data-api.polymarket.com"
 
 // userAgent identifies us to upstream WAFs (the default Go UA gets blocked).
 const userAgent = "lobsterroll-leaderboard/1.0"
@@ -40,18 +35,15 @@ type Activity struct {
 	Timestamp   int64   `json:"timestamp"`   // unix seconds of the event
 }
 
-// Client reads per-wallet data over HTTP.
+// Client reads per-wallet data over HTTP via the shared data-api client.
 type Client struct {
-	baseURL string
-	http    *http.Client
+	api *pmapi.Client
 }
 
-// New returns a Client. If hc is nil, a Client with a 15s timeout is used.
+// New returns a Client. An empty baseURL uses the shared default host; a nil hc
+// uses a 15s timeout.
 func New(baseURL string, hc *http.Client) *Client {
-	if hc == nil {
-		hc = &http.Client{Timeout: 15 * time.Second}
-	}
-	return &Client{baseURL: baseURL, http: hc}
+	return &Client{api: pmapi.New(baseURL, userAgent, hc)}
 }
 
 // Activity returns up to maxRows activity rows for wallet, paginating by offset
@@ -67,15 +59,10 @@ func (c *Client) Activity(ctx context.Context, wallet string, maxRows int) ([]Ac
 		q.Set("user", wallet)
 		q.Set("limit", strconv.Itoa(activityPageSize))
 		q.Set("offset", strconv.Itoa(offset))
-		endpoint := c.baseURL + "/activity?" + q.Encode()
 
-		body, err := httpx.Get(ctx, c.http, endpoint, userAgent, 8<<20)
-		if err != nil {
-			return nil, fmt.Errorf("data-api /activity: %w", err)
-		}
 		var page []Activity
-		if err := json.Unmarshal(body, &page); err != nil {
-			return nil, fmt.Errorf("decode activity: %w", err)
+		if err := c.api.GetJSON(ctx, "/activity", q, &page); err != nil {
+			return nil, fmt.Errorf("data-api /activity: %w", err)
 		}
 		all = append(all, page...)
 		// A short page (fewer than a full page) means we've reached the end.
@@ -100,15 +87,10 @@ type valueRow struct {
 func (c *Client) Value(ctx context.Context, wallet string) (float64, error) {
 	q := url.Values{}
 	q.Set("user", wallet)
-	endpoint := c.baseURL + "/value?" + q.Encode()
 
-	body, err := httpx.Get(ctx, c.http, endpoint, userAgent, 8<<20)
-	if err != nil {
-		return 0, fmt.Errorf("data-api /value: %w", err)
-	}
 	var rows []valueRow
-	if err := json.Unmarshal(body, &rows); err != nil {
-		return 0, fmt.Errorf("decode value: %w", err)
+	if err := c.api.GetJSON(ctx, "/value", q, &rows); err != nil {
+		return 0, fmt.Errorf("data-api /value: %w", err)
 	}
 	if len(rows) == 0 {
 		return 0, nil

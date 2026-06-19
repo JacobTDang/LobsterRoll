@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	pmapi "github.com/JacobTDang/LobsterRoll/pkg/dataapi"
 	"github.com/JacobTDang/LobsterRoll/services/leaderboard/internal/client"
 )
 
@@ -46,7 +47,7 @@ const (
 	defGRPCAddr       = ":50051"
 	defPricewatchAddr = "pricewatch:50053"
 
-	defDataAPIBase        = "https://data-api.polymarket.com"
+	defDataAPIBase        = pmapi.BaseURL
 	defStatsMinResolved   = 20      // sample size: 90% win rate is noise below this
 	defStatsMinWinRate    = 0.90    // only proven-accurate wallets
 	defStatsMinPortfolio  = 100_000 // only well-capitalized wallets ($100k+)
