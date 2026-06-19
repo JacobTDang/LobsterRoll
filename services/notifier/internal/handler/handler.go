@@ -1,6 +1,9 @@
 // Package handler turns a detected trade into an enriched, formatted Telegram
-// alert. It never blocks the bus: enrichment failures degrade gracefully to an
-// "unknown market" alert, and send failures are logged.
+// alert. It never returns errors to the bus: enrichment failures degrade
+// gracefully to an "unknown market" alert, and send failures are logged. A
+// Telegram Send can block (timeout + 429 backoff), so the notifier runs Handle on
+// a bounded dispatch pool rather than the NATS callback goroutine — see
+// services/notifier/main.go — so a slow send can't stall the subscription drain.
 package handler
 
 import (

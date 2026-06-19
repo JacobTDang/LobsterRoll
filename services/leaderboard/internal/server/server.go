@@ -68,6 +68,13 @@ func (s *Server) GetWatchset(ctx context.Context, _ *lobsterrollv1.GetWatchsetRe
 // GetWalletStats returns our cached consistency stats for a wallet. Found is
 // false (and the other fields zero) when we have not computed stats for it yet.
 // The request wallet is normalized to match how stats are keyed in the store.
+//
+// Consistency: stats are EVENTUALLY consistent within a refresh. A refresh writes
+// each wallet in three steps (UpsertStats, SetSkillScore, SetWalletCLV) that are
+// not one transaction, so a read landing mid-refresh may pair fresh win_rate/roi
+// with the previous cycle's skill_score/avg_clv. This is benign — the gap is one
+// in-memory compute plus one RPC, refreshes are infrequent, and the next refresh
+// reconciles — so it is not wrapped in a transaction.
 func (s *Server) GetWalletStats(ctx context.Context, req *lobsterrollv1.GetWalletStatsRequest) (*lobsterrollv1.WalletStats, error) {
 	wallet, ok := chain.NormalizeAddress(req.GetWallet())
 	if !ok {
