@@ -74,6 +74,25 @@ func TestShrink_Scores0to100(t *testing.T) {
 	}
 }
 
+func TestShrink_TiedWalletsGetSameScore(t *testing.T) {
+	// Equally-skilled wallets (identical ROI + N -> identical ShrunkROI) must get
+	// the SAME score, not be spread across the range by input order.
+	pop := []Input{
+		{Wallet: "a", ROI: 0.30, N: 100},
+		{Wallet: "b", ROI: 0.30, N: 100},
+		{Wallet: "c", ROI: 0.30, N: 100},
+		{Wallet: "d", ROI: 0.10, N: 100},
+	}
+	res := Shrink(pop, 50)
+	a, b, c := find(res, "a").Score, find(res, "b").Score, find(res, "c").Score
+	if a != b || b != c {
+		t.Errorf("tied wallets got different scores: a=%d b=%d c=%d", a, b, c)
+	}
+	if find(res, "d").Score >= a {
+		t.Errorf("lower-ROI wallet d (%d) should score below the tied group (%d)", find(res, "d").Score, a)
+	}
+}
+
 func TestShrink_Empty(t *testing.T) {
 	if Shrink(nil, 100) != nil {
 		t.Error("Shrink(nil) should be nil")

@@ -126,12 +126,17 @@ func Compute(acts []dataapi.Activity) Stats {
 
 	for _, m := range resolved {
 		s.ResolvedMarkets++
-		s.RealizedPnL += m.net
-		s.CapitalDeployed += m.cost
 		if m.net > 0 {
 			wins++
 		}
+		// Only markets with a captured cost basis feed the return-based metrics
+		// (RealizedPnL/CapitalDeployed/ROI/Returns). A resolved market with cost==0
+		// — e.g. a REDEEM/SELL/MERGE whose opening BUY/SPLIT fell outside the fetched
+		// history — would otherwise add profit to the numerator with nothing in the
+		// denominator, inflating ROI. Skipping it keeps ROI consistent with Returns.
 		if m.cost > 0 {
+			s.RealizedPnL += m.net
+			s.CapitalDeployed += m.cost
 			s.Returns = append(s.Returns, m.net/m.cost)
 		}
 	}

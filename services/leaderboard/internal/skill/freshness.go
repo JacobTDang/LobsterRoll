@@ -10,6 +10,15 @@ const (
 	// threshold (ARL0 ≈ 465 false-alarm interval at these values).
 	cusumK = 0.5
 	cusumH = 5.0
+	// cusumClamp bounds any single standardized observation's influence. Returns
+	// are standardized by the series' own in-sample sd, so a long, tightly-clustered
+	// winning streak collapses sd and turns one ordinary recent loss into an
+	// enormous z that would breach cusumH in a SINGLE step — flagging the most
+	// consistent winners as "cooling off" (exactly backwards). Clamping to 4σ caps a
+	// single step's contribution at clamp-k = 3.5 (< cusumH), so only a SUSTAINED
+	// downward run can accumulate past the threshold. 4σ events are negligibly rare
+	// under ~N(0,1), so the ARL0 on well-behaved series is essentially unchanged.
+	cusumClamp = 4.0
 )
 
 // Fresh reports whether a wallet is NOT cooling off, via a one-sided lower CUSUM
@@ -28,6 +37,11 @@ func Fresh(returns []float64) bool {
 	var sLo float64
 	for _, r := range returns {
 		z := (r - mean) / sd
+		if z > cusumClamp {
+			z = cusumClamp
+		} else if z < -cusumClamp {
+			z = -cusumClamp
+		}
 		if sLo = sLo - z - cusumK; sLo < 0 {
 			sLo = 0
 		}

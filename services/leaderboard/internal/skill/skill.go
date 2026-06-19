@@ -9,8 +9,6 @@
 // flukes — the direct guard against survivorship bias on a winners' leaderboard.
 package skill
 
-import "sort"
-
 // Input is a wallet's raw skill inputs.
 type Input struct {
 	Wallet string
@@ -40,7 +38,10 @@ func Shrink(pop []Input, k float64) []Result {
 	}
 
 	// Population mean ROI, weighted by sample size (big-sample wallets anchor the
-	// prior more than noisy small-sample ones).
+	// prior more than noisy small-sample ones). This is an IN-SAMPLE mean — each
+	// wallet's own ROI is included in the prior it's shrunk toward. That's standard
+	// empirical-Bayes practice and only matters when a single wallet's N dwarfs the
+	// rest of the pool; a strict leave-one-out prior is unnecessary here.
 	var sumN, sumNROI float64
 	for _, w := range pop {
 		n := float64(w.N)
@@ -62,21 +63,23 @@ func Shrink(pop []Input, k float64) []Result {
 }
 
 // assignScores sets Score as the 0–100 percentile rank by ShrunkROI (highest
-// shrunk ROI = 100, lowest = 0, single wallet = 100).
+// shrunk ROI = 100, lowest = 0, single wallet = 100). Rank is the count of
+// wallets with a STRICTLY smaller ShrunkROI, so equally-skilled wallets get the
+// SAME score (ranking by array index would spread ties across the whole range,
+// e.g. five identical wallets shown as 0/25/50/75/100).
 func assignScores(res []Result) {
 	n := len(res)
 	if n == 1 {
 		res[0].Score = 100
 		return
 	}
-	order := make([]int, n)
-	for i := range order {
-		order[i] = i
-	}
-	sort.SliceStable(order, func(a, b int) bool {
-		return res[order[a]].ShrunkROI < res[order[b]].ShrunkROI
-	})
-	for rank, idx := range order {
-		res[idx].Score = int(float64(rank)/float64(n-1)*100 + 0.5)
+	for i := range res {
+		smaller := 0
+		for j := range res {
+			if res[j].ShrunkROI < res[i].ShrunkROI {
+				smaller++
+			}
+		}
+		res[i].Score = int(float64(smaller)/float64(n-1)*100 + 0.5)
 	}
 }

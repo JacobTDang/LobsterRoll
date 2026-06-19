@@ -28,6 +28,19 @@ func TestFresh_RecentSlumpFlagged(t *testing.T) {
 	}
 }
 
+func TestFresh_OneRecentLossOnSteadyWinnerStaysFresh(t *testing.T) {
+	// Regression (HIGH bug): a long, consistent winner with ONE ordinary recent
+	// loss must NOT be flagged. In-sample sd collapse used to make a single loss
+	// breach the threshold in one step — gating out exactly the best wallets.
+	if !Fresh(append(rep(0.30, 40), -0.5)) {
+		t.Error("one recent loss on a long steady winner should stay fresh")
+	}
+	// But a SUSTAINED recent slump (2+) must still flag.
+	if Fresh(append(rep(0.30, 40), -0.5, -0.5, -0.5)) {
+		t.Error("a sustained recent slump should be flagged as cooling")
+	}
+}
+
 func TestFresh_TooFewSamples(t *testing.T) {
 	// Below the sample floor we lack evidence -> treat as fresh.
 	if !Fresh([]float64{-0.9, -0.9, -0.9}) {

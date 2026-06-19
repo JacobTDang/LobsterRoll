@@ -38,6 +38,23 @@ func TestCompute_ROI(t *testing.T) {
 	}
 }
 
+func TestCompute_ZeroCostMarketExcludedFromROI(t *testing.T) {
+	// m1: buy $100, redeem $150 -> +$50 on $100. m2: a REDEEM with no captured BUY
+	// (cost==0) -> must NOT inflate ROI/RealizedPnL (its profit has no denominator).
+	acts := []dataapi.Activity{
+		act(typeTrade, sideBuy, 100, "m1"),
+		act(typeRedeem, "", 150, "m1"),
+		act(typeRedeem, "", 90, "m2"), // orphan redeem, cost 0
+	}
+	s := Compute(acts)
+	if !approx(s.CapitalDeployed, 100) || !approx(s.RealizedPnL, 50) || !approx(s.ROI, 0.50) {
+		t.Errorf("got cap=%v pnl=%v roi=%v, want 100/50/0.50 (m2 cost==0 excluded)", s.CapitalDeployed, s.RealizedPnL, s.ROI)
+	}
+	if len(s.Returns) != 1 || !approx(s.Returns[0], 0.50) {
+		t.Errorf("Returns = %v, want [0.50] (only the cost-basis market)", s.Returns)
+	}
+}
+
 func TestCompute_ROI_SplitCountsAsCapital(t *testing.T) {
 	// A SPLIT deploys capital; redeeming resolves it. -$100 (split) +$130 (redeem)
 	// = +$30 on $100 deployed -> ROI 0.30.
