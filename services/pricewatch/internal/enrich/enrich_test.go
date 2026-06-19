@@ -3,6 +3,7 @@ package enrich
 import (
 	"context"
 	"testing"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -39,17 +40,39 @@ func TestEndDate_CachesResult(t *testing.T) {
 	}
 }
 
-func TestEndDate_NotFoundIsUnknownUncached(t *testing.T) {
+func TestEndDate_NotFoundNegativelyCachedThenReResolves(t *testing.T) {
 	f := &fakeEnricher{err: status.Error(codes.NotFound, "nope")}
 	c := New(f)
-	v, err := c.EndDate(context.Background(), "tok")
-	if err != nil || v != 0 {
+	now := time.Unix(1_700_000_000, 0)
+	c.now = func() time.Time { return now }
+
+	if v, err := c.EndDate(context.Background(), "tok"); err != nil || v != 0 {
 		t.Fatalf("NotFound EndDate = %v, %v; want 0, nil", v, err)
 	}
-	// Not cached -> a later call retries (market may become known).
+	// Within negTTL: served from the negative cache, no re-fetch (stops hammering gamma).
+	_, _ = c.EndDate(context.Background(), "tok")
+	if f.calls != 1 {
+		t.Errorf("calls = %d, want 1 (NotFound negatively cached)", f.calls)
+	}
+	// After negTTL: re-resolves (the market may have become known).
+	now = now.Add(negTTL + time.Minute)
 	_, _ = c.EndDate(context.Background(), "tok")
 	if f.calls != 2 {
-		t.Errorf("calls = %d, want 2 (NotFound not cached)", f.calls)
+		t.Errorf("calls = %d, want 2 (re-resolves after negTTL)", f.calls)
+	}
+}
+
+func TestEndDate_ZeroEndReResolves(t *testing.T) {
+	// A resolved market with no end date yet (end==0) must NOT be cached forever.
+	f := &fakeEnricher{end: 0}
+	c := New(f)
+	now := time.Unix(1_700_000_000, 0)
+	c.now = func() time.Time { return now }
+	_, _ = c.EndDate(context.Background(), "tok")
+	now = now.Add(negTTL + time.Minute)
+	_, _ = c.EndDate(context.Background(), "tok")
+	if f.calls != 2 {
+		t.Errorf("calls = %d, want 2 (end==0 must re-resolve, not cache forever)", f.calls)
 	}
 }
 

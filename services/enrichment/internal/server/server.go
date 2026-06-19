@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync"
 	"time"
 
 	"golang.org/x/sync/singleflight"
@@ -15,6 +16,12 @@ import (
 	lobsterrollv1 "github.com/JacobTDang/LobsterRoll/gen/go"
 	"github.com/JacobTDang/LobsterRoll/services/enrichment/internal/client"
 )
+
+// negCacheTTL bounds how long an unknown token is remembered as NotFound, so
+// repeated lookups for a token gamma doesn't know don't re-hit the upstream every
+// time (singleflight only collapses CONCURRENT misses). Short enough that a token
+// gamma later learns about still resolves.
+const negCacheTTL = time.Hour
 
 // Cache is the persistent enrichment cache.
 type Cache interface {
@@ -36,6 +43,10 @@ type Server struct {
 	resolver Resolver
 	log      *slog.Logger
 	group    singleflight.Group
+
+	now    func() time.Time
+	negMu  sync.Mutex
+	negTok map[string]time.Time // tokenID -> NotFound-cache expiry
 }
 
 // New returns a Server. If log is nil, slog.Default() is used.
@@ -43,7 +54,7 @@ func New(cache Cache, resolver Resolver, log *slog.Logger) *Server {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Server{cache: cache, resolver: resolver, log: log}
+	return &Server{cache: cache, resolver: resolver, log: log, now: time.Now, negTok: make(map[string]time.Time)}
 }
 
 // EnrichToken resolves a tokenId to its market/outcome, serving from cache when
@@ -59,6 +70,9 @@ func (s *Server) EnrichToken(ctx context.Context, req *lobsterrollv1.EnrichToken
 		return nil, status.Errorf(codes.Internal, "cache get: %v", err)
 	} else if hit {
 		return toResponse(e), nil
+	}
+	if s.negativelyCached(tokenID) {
+		return nil, status.Errorf(codes.NotFound, "token %s not found (cached)", tokenID)
 	}
 
 	// Collapse concurrent misses for the same token into one upstream fetch. The
@@ -83,11 +97,34 @@ func (s *Server) EnrichToken(ctx context.Context, req *lobsterrollv1.EnrichToken
 	})
 	if err != nil {
 		if errors.Is(err, errNotFound) {
+			s.cacheNegative(tokenID)
 			return nil, status.Errorf(codes.NotFound, "token %s not found", tokenID)
 		}
 		return nil, status.Errorf(codes.Unavailable, "resolve: %v", err)
 	}
 	return toResponse(v.(client.Enrichment)), nil
+}
+
+// negativelyCached reports whether tokenID is a non-expired NotFound.
+func (s *Server) negativelyCached(tokenID string) bool {
+	s.negMu.Lock()
+	defer s.negMu.Unlock()
+	exp, ok := s.negTok[tokenID]
+	if !ok {
+		return false
+	}
+	if !s.now().Before(exp) {
+		delete(s.negTok, tokenID) // expired
+		return false
+	}
+	return true
+}
+
+// cacheNegative remembers tokenID as NotFound for negCacheTTL.
+func (s *Server) cacheNegative(tokenID string) {
+	s.negMu.Lock()
+	s.negTok[tokenID] = s.now().Add(negCacheTTL)
+	s.negMu.Unlock()
 }
 
 var errNotFound = errors.New("enrichment: token not found")

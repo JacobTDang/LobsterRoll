@@ -127,11 +127,29 @@ func TestEnrichToken_MissThenCached(t *testing.T) {
 	}
 }
 
-func TestEnrichToken_NotFound(t *testing.T) {
-	cl := dial(t, New(newMemCache(), &fakeResolver{found: false}, nil))
-	_, err := cl.EnrichToken(context.Background(), &lobsterrollv1.EnrichTokenRequest{TokenId: "missing"})
-	if status.Code(err) != codes.NotFound {
+func TestEnrichToken_NotFoundNegativelyCached(t *testing.T) {
+	res := &fakeResolver{found: false}
+	srv := New(newMemCache(), res, nil)
+	now := time.Unix(1_700_000_000, 0)
+	srv.now = func() time.Time { return now }
+	cl := dial(t, srv)
+
+	// Repeated lookups for an unknown token return NotFound but hit gamma ONCE.
+	for i := 0; i < 3; i++ {
+		if _, err := cl.EnrichToken(context.Background(), &lobsterrollv1.EnrichTokenRequest{TokenId: "missing"}); status.Code(err) != codes.NotFound {
+			t.Fatalf("err = %v, want NotFound", err)
+		}
+	}
+	if got := atomic.LoadInt32(&res.calls); got != 1 {
+		t.Fatalf("resolver calls = %d, want 1 (NotFound negatively cached)", got)
+	}
+	// After the negative-cache TTL the token re-resolves (gamma may have learned it).
+	now = now.Add(negCacheTTL + time.Minute)
+	if _, err := cl.EnrichToken(context.Background(), &lobsterrollv1.EnrichTokenRequest{TokenId: "missing"}); status.Code(err) != codes.NotFound {
 		t.Fatalf("err = %v, want NotFound", err)
+	}
+	if got := atomic.LoadInt32(&res.calls); got != 2 {
+		t.Fatalf("resolver calls = %d, want 2 (re-resolves after negCacheTTL)", got)
 	}
 }
 
