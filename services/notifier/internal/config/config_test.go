@@ -32,6 +32,7 @@ func TestLoad_Overrides(t *testing.T) {
 		"NOTIFIER_QUEUE_GROUP":       "n2",
 		"ALERT_DEDUP_TTL":            "1h",
 		"ALERT_COOLDOWN":             "30m",
+		"CONSENSUS_DEDUP_TTL":        "4h",
 		"USER_WALLET":                "0xme",
 		"DATA_API_BASE":              "http://localhost:8100",
 		"MY_POSITIONS_POLL_INTERVAL": "2m",
@@ -43,8 +44,8 @@ func TestLoad_Overrides(t *testing.T) {
 		TelegramToken: "tok", TelegramChatID: "42", TelegramBaseURL: "http://localhost:8099",
 		NATSURL: "nats://localhost:4222", EnrichmentAddr: "localhost:50052",
 		LeaderboardAddr: "localhost:50051", QueueGroup: "n2", AlertDedupTTL: time.Hour,
-		AlertCooldown: 30 * time.Minute,
-		UserWallet:    "0xme", DataAPIBase: "http://localhost:8100", MyPositionsPoll: 2 * time.Minute,
+		AlertCooldown: 30 * time.Minute, ConsensusDedup: 4 * time.Hour,
+		UserWallet: "0xme", DataAPIBase: "http://localhost:8100", MyPositionsPoll: 2 * time.Minute,
 	}
 	if cfg != want {
 		t.Fatalf("got %+v, want %+v", cfg, want)

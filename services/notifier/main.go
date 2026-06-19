@@ -14,6 +14,7 @@ import (
 	lobsterrollv1 "github.com/JacobTDang/LobsterRoll/gen/go"
 	"github.com/JacobTDang/LobsterRoll/pkg/bus"
 	"github.com/JacobTDang/LobsterRoll/pkg/dedup"
+	"github.com/JacobTDang/LobsterRoll/pkg/metrics"
 	"github.com/JacobTDang/LobsterRoll/pkg/svc"
 	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/approval"
 	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/config"
@@ -23,6 +24,15 @@ import (
 )
 
 const longPollSec = 5
+
+// Alert dispatch pool sizing: workers cap concurrent Telegram sends (Telegram
+// rate-limits ~30/s, so a few is plenty); the queue absorbs bursts before drops.
+const (
+	alertWorkers   = 4
+	alertQueueSize = 2048
+)
+
+var mAlertsDropped = metrics.NewCounter("lobsterroll_notifier_alerts_dropped_total", "alerts dropped because the dispatch queue was full (telegram saturated)")
 
 func main() {
 	svc.Run("notifier", run)
@@ -78,26 +88,62 @@ func run(ctx context.Context, log *slog.Logger) error {
 		log.Info("position-exit alerts enabled", "wallet", cfg.UserWallet, "poll", cfg.MyPositionsPoll)
 	}
 
-	alerts := handler.New(enrich, leaderboard, tg, cfg.TelegramChatID, dedup.New(cfg.AlertDedupTTL), cooldown, myPos, log)
+	alerts := handler.New(enrich, leaderboard, tg, cfg.TelegramChatID,
+		dedup.New(cfg.AlertDedupTTL), cooldown, myPos, dedup.New(cfg.ConsensusDedup), log)
 	mgr := approval.New(tg, pub, cfg.TelegramChatID, log)
 
-	// One-way alerts on every detected trade.
+	g, ctx := errgroup.WithContext(ctx)
+
+	// Alert dispatch pool: a Telegram Send can block for tens of seconds (timeout +
+	// 429 backoff). The core-NATS subscription callback runs serially on one
+	// goroutine, so calling Send inline lets a slow Telegram stall the
+	// trades.detected drain and trip NATS pending limits → silently dropped
+	// messages. Hand sends to a bounded worker pool instead; if the queue saturates
+	// we drop EXPLICITLY (metered) rather than letting NATS drop silently.
+	jobs := make(chan func(), alertQueueSize)
+	for i := 0; i < alertWorkers; i++ {
+		g.Go(func() error {
+			for {
+				select {
+				case <-ctx.Done():
+					return nil
+				case f := <-jobs:
+					f()
+				}
+			}
+		})
+	}
+	submit := func(f func()) {
+		select {
+		case jobs <- f:
+		default:
+			mAlertsDropped.Inc()
+			log.Warn("alert dispatch queue full; dropping alert (telegram slow/rate-limited?)")
+		}
+	}
+
+	// One-way alerts on every detected trade (dispatched off the NATS callback).
 	if _, err := sub.OnTradeDetected(cfg.QueueGroup, func(td bus.TradeDetected) {
-		mctx, cancel := svc.Detached(ctx)
-		defer cancel()
-		alerts.Handle(mctx, td)
+		submit(func() {
+			mctx, cancel := svc.Detached(ctx)
+			defer cancel()
+			alerts.Handle(mctx, td)
+		})
 	}); err != nil {
 		return err
 	}
 	// Premium consensus alerts when multiple tracked wallets converge on a bet.
 	if _, err := sub.OnConsensus(cfg.QueueGroup, func(sig bus.ConsensusSignal) {
-		mctx, cancel := svc.Detached(ctx)
-		defer cancel()
-		alerts.HandleConsensus(mctx, sig)
+		submit(func() {
+			mctx, cancel := svc.Detached(ctx)
+			defer cancel()
+			alerts.HandleConsensus(mctx, sig)
+		})
 	}); err != nil {
 		return err
 	}
-	// Two-way: post each proposal with approve/reject buttons.
+	// Two-way: post each proposal with approve/reject buttons. Low-volume +
+	// interactive, so kept on the callback goroutine (not the bursty alert path).
 	if _, err := sub.OnOrderProposed(cfg.QueueGroup, func(p bus.OrderProposal) {
 		mctx, cancel := svc.Detached(ctx)
 		defer cancel()
@@ -106,7 +152,6 @@ func run(ctx context.Context, log *slog.Logger) error {
 		return err
 	}
 
-	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return pollUpdates(ctx, tg, mgr, log) })
 	if myPos != nil {
 		g.Go(func() error { return pollPositions(ctx, posClient, myPos, cfg.UserWallet, cfg.MyPositionsPoll, log) })

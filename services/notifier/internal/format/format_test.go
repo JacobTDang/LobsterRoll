@@ -8,6 +8,16 @@ import (
 	"github.com/JacobTDang/LobsterRoll/pkg/bus"
 )
 
+func TestMoneyLine(t *testing.T) {
+	if got := moneyLine("5.76", "0.95"); got != "💵 $5.47  ·  5.76 @ $0.95" {
+		t.Errorf("moneyLine = %q, want the full notional line", got)
+	}
+	// Unparsable size/price -> just the "$?" head, no dangling "·  @ $".
+	if got := moneyLine("", ""); got != "💵 $?" {
+		t.Errorf("moneyLine(unparsable) = %q, want %q", got, "💵 $?")
+	}
+}
+
 func TestFormatProposal(t *testing.T) {
 	p := bus.OrderProposal{
 		ID: "prop-1", TokenID: "25960997961246252830800085989836468476752301777787246680725159102517868182787",

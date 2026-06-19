@@ -56,7 +56,7 @@ func FormatAlert(td bus.TradeDetected, m Market, ws WhaleStats) string {
 	if line, ok := statsLine(ws); ok {
 		lines = append(lines, line)
 	}
-	lines = append(lines, fmt.Sprintf("💵 $%s  ·  %s @ $%s", notional(td.Size, td.Price), td.Size, td.Price))
+	lines = append(lines, moneyLine(td.Size, td.Price))
 	if !td.ObservedAt.IsZero() {
 		lines = append(lines, fmt.Sprintf("🕒 %s", td.ObservedAt.UTC().Format("2006-01-02 15:04 UTC")))
 	}
@@ -224,6 +224,16 @@ func humanWindow(secs int) string {
 		return fmt.Sprintf("%dh", secs/3600)
 	}
 	return fmt.Sprintf("%dm", secs/60)
+}
+
+// moneyLine renders the 💵 notional line, omitting the "· size @ price" tail when
+// size/price don't parse (so a malformed event yields "💵 $?" not "💵 $?  ·   @ $").
+func moneyLine(size, price string) string {
+	n := notional(size, price)
+	if n == "?" {
+		return "💵 $?"
+	}
+	return fmt.Sprintf("💵 $%s  ·  %s @ $%s", n, size, price)
 }
 
 // notional returns size*price formatted to 2 decimals (USDC); "?" if unparsable.

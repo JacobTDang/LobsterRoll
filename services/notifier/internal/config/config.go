@@ -18,6 +18,7 @@ type Config struct {
 	QueueGroup      string
 	AlertDedupTTL   time.Duration // suppress duplicate (same-fill) trade alerts for this long
 	AlertCooldown   time.Duration // collapse repeated wallet+market+side alerts; 0 = off
+	ConsensusDedup  time.Duration // dedup window for consensus signals (≈ consensus window; < AlertDedupTTL so re-fires get through)
 	UserWallet      string        // public wallet to track for position-exit alerts; "" = disabled
 	DataAPIBase     string        // Polymarket data-api host (positions); "" = default
 	MyPositionsPoll time.Duration // how often to refresh the user's positions
@@ -30,6 +31,7 @@ const (
 	defQueueGroup      = "notifier"
 	defAlertDedupTTL   = 24 * time.Hour
 	defAlertCooldown   = 15 * time.Minute
+	defConsensusDedup  = 6 * time.Hour
 	defMyPositionsPoll = 5 * time.Minute
 )
 
@@ -45,6 +47,7 @@ func Load(getenv func(string) string) (Config, error) {
 		QueueGroup:      orDefault(getenv("NOTIFIER_QUEUE_GROUP"), defQueueGroup),
 		AlertDedupTTL:   defAlertDedupTTL,
 		AlertCooldown:   defAlertCooldown,
+		ConsensusDedup:  defConsensusDedup,
 		UserWallet:      getenv("USER_WALLET"),
 		DataAPIBase:     getenv("DATA_API_BASE"),
 		MyPositionsPoll: defMyPositionsPoll,
@@ -70,6 +73,13 @@ func Load(getenv func(string) string) (Config, error) {
 		}
 		cfg.AlertCooldown = d
 	}
+	if v := getenv("CONSENSUS_DEDUP_TTL"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("CONSENSUS_DEDUP_TTL: %w", err)
+		}
+		cfg.ConsensusDedup = d
+	}
 	if cfg.TelegramToken == "" {
 		return Config{}, fmt.Errorf("TELEGRAM_BOT_TOKEN is required")
 	}
@@ -81,6 +91,9 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	if cfg.AlertCooldown < 0 {
 		return Config{}, fmt.Errorf("ALERT_COOLDOWN must be >= 0, got %s", cfg.AlertCooldown)
+	}
+	if cfg.ConsensusDedup <= 0 {
+		return Config{}, fmt.Errorf("CONSENSUS_DEDUP_TTL must be > 0, got %s", cfg.ConsensusDedup)
 	}
 	if cfg.UserWallet != "" && cfg.MyPositionsPoll <= 0 {
 		return Config{}, fmt.Errorf("MY_POSITIONS_POLL_INTERVAL must be > 0 when USER_WALLET is set, got %s", cfg.MyPositionsPoll)

@@ -46,24 +46,28 @@ type Sender interface {
 
 // Handler enriches and sends alerts.
 type Handler struct {
-	enrich   Enricher
-	stats    WhaleStatsLookuper
-	sender   Sender
-	chatID   string
-	dedup    *dedup.TTLSet    // exact-trade dedup: suppresses re-emits of the SAME fill
-	cooldown *dedup.TTLSet    // burst cooldown: collapses repeated wallet+market+side trades
-	myPos    *positions.Cache // nil => position-exit alerts disabled (no USER_WALLET)
-	now      func() time.Time
-	log      *slog.Logger
+	enrich    Enricher
+	stats     WhaleStatsLookuper
+	sender    Sender
+	chatID    string
+	dedup     *dedup.TTLSet    // exact-trade dedup: suppresses re-emits of the SAME fill
+	cooldown  *dedup.TTLSet    // burst cooldown: collapses repeated wallet+market+side trades
+	consensus *dedup.TTLSet    // consensus-signal dedup (shorter TTL than trade dedup); nil = off
+	myPos     *positions.Cache // nil => position-exit alerts disabled (no USER_WALLET)
+	now       func() time.Time
+	log       *slog.Logger
 }
 
 // New constructs a Handler. stats may be nil to disable whale track-record
 // enrichment (alerts then render without the stats line). dd dedups exact
 // re-emitted trades; cooldown (may be nil) collapses a whale's repeated trades
 // on the same market+side into one alert per cooldown window. myPos (may be nil)
-// enables priority alerts when a whale trades a market the user holds.
-func New(enrich Enricher, stats WhaleStatsLookuper, sender Sender, chatID string, dd, cooldown *dedup.TTLSet, myPos *positions.Cache, log *slog.Logger) *Handler {
-	return &Handler{enrich: enrich, stats: stats, sender: sender, chatID: chatID, dedup: dd, cooldown: cooldown, myPos: myPos, now: time.Now, log: log}
+// enables priority alerts when a whale trades a market the user holds. consensus
+// (may be nil) dedups consensus signals on a SHORTER TTL than dd — long enough to
+// drop NATS redeliveries but short enough that a genuine re-fire after the cohort
+// dissipates still reaches the user (the 24h trade-dedup TTL would swallow it).
+func New(enrich Enricher, stats WhaleStatsLookuper, sender Sender, chatID string, dd, cooldown *dedup.TTLSet, myPos *positions.Cache, consensus *dedup.TTLSet, log *slog.Logger) *Handler {
+	return &Handler{enrich: enrich, stats: stats, sender: sender, chatID: chatID, dedup: dd, cooldown: cooldown, consensus: consensus, myPos: myPos, now: time.Now, log: log}
 }
 
 // tradeKey uniquely identifies a detected trade. The on-chain (tx, logIndex)
@@ -232,7 +236,7 @@ func consensusKey(sig bus.ConsensusSignal) string {
 // Like Handle, it degrades gracefully and never returns errors to the bus.
 func (h *Handler) HandleConsensus(ctx context.Context, sig bus.ConsensusSignal) {
 	key := consensusKey(sig)
-	if h.dedup != nil && !h.dedup.Add(key) {
+	if h.consensus != nil && !h.consensus.Add(key) {
 		h.log.Info("duplicate consensus alert suppressed", "token", sig.TokenID, "count", sig.Count)
 		return
 	}
@@ -241,8 +245,8 @@ func (h *Handler) HandleConsensus(ctx context.Context, sig bus.ConsensusSignal) 
 
 	text := format.FormatConsensus(sig, market)
 	if err := h.sender.Send(ctx, h.chatID, text); err != nil {
-		if h.dedup != nil {
-			h.dedup.Remove(key) // failed send delivered nothing -> allow retry
+		if h.consensus != nil {
+			h.consensus.Remove(key) // failed send delivered nothing -> allow retry
 		}
 		h.log.Error("send consensus alert failed", "token", sig.TokenID, "count", sig.Count, "err", err)
 		return

@@ -171,6 +171,9 @@ func (c *Client) call(ctx context.Context, method string, payload, out any) erro
 			var r apiResp
 			_ = json.Unmarshal(raw, &r)
 			wait := time.Duration(r.Parameters.RetryAfter) * time.Second
+			if wait < time.Second {
+				wait = time.Second // floor: a 429 without retry_after must still back off, not retry instantly
+			}
 			if wait > 60*time.Second {
 				wait = 60 * time.Second
 			}
