@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	"golang.org/x/sync/errgroup"
@@ -13,6 +14,7 @@ import (
 	lobsterrollv1 "github.com/JacobTDang/LobsterRoll/gen/go"
 	"github.com/JacobTDang/LobsterRoll/pkg/bus"
 	"github.com/JacobTDang/LobsterRoll/pkg/svc"
+	"github.com/JacobTDang/LobsterRoll/services/watcher/internal/backoff"
 	"github.com/JacobTDang/LobsterRoll/services/watcher/internal/chainwatch"
 	"github.com/JacobTDang/LobsterRoll/services/watcher/internal/config"
 	"github.com/JacobTDang/LobsterRoll/services/watcher/internal/dedup"
@@ -55,8 +57,12 @@ func run(ctx context.Context, log *slog.Logger) error {
 	defer conn.Close()
 	lbClient := lobsterrollv1.NewLeaderboardClient(conn)
 
-	// Polygon WebSocket client for live log subscription + backfill.
-	ec, err := ethclient.DialContext(ctx, cfg.RPCWSSURL)
+	// Polygon WebSocket client for live log subscription + backfill. Retry the
+	// initial dial with backoff: providers (e.g. Alchemy) answer bursty
+	// reconnects with HTTP 429, and an all-day run must self-heal rather than
+	// exit on a transient throttle. The reconnect loop inside Run already backs
+	// off; this guards the very first connect the same way.
+	ec, err := dialWithRetry(ctx, cfg.RPCWSSURL, log)
 	if err != nil {
 		return err
 	}
@@ -81,6 +87,41 @@ func run(ctx context.Context, log *slog.Logger) error {
 		return w.Run(ctx)
 	})
 	return g.Wait()
+}
+
+// dialBackoff bounds the initial-connect retry. Deliberately gentle: providers
+// rate-limit (429) the RATE of new WS connections, so retrying too eagerly keeps
+// the limit hot and never recovers. Starting at 15s and capping at 5m means at
+// most a handful of attempts before settling to one every 5 minutes — enough to
+// reconnect once the provider's window resets without hammering it.
+const (
+	dialBackoffBase = 15 * time.Second
+	dialBackoffMax  = 5 * time.Minute
+)
+
+// dialWithRetry dials the WS RPC, retrying transient failures (notably HTTP 429
+// rate limits) with capped exponential backoff until it connects or ctx is
+// cancelled.
+func dialWithRetry(ctx context.Context, url string, log *slog.Logger) (*ethclient.Client, error) {
+	for attempt := 0; ; attempt++ {
+		ec, err := ethclient.DialContext(ctx, url)
+		if err == nil {
+			if attempt > 0 {
+				log.Info("rpc connected after retry", "attempts", attempt+1)
+			}
+			return ec, nil
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		d := backoff.Delay(attempt, dialBackoffBase, dialBackoffMax)
+		log.Warn("rpc dial failed; retrying", "err", err, "attempt", attempt+1, "retry_in", d.String())
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(d):
+		}
+	}
 }
 
 // redactURL hides any API key embedded in an RPC URL's query string before logging.
