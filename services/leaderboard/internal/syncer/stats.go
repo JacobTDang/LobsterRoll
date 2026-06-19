@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc"
 
 	lobsterrollv1 "github.com/JacobTDang/LobsterRoll/gen/go"
+	"github.com/JacobTDang/LobsterRoll/pkg/metrics"
 	"github.com/JacobTDang/LobsterRoll/services/leaderboard/internal/client"
 	"github.com/JacobTDang/LobsterRoll/services/leaderboard/internal/dataapi"
 	"github.com/JacobTDang/LobsterRoll/services/leaderboard/internal/selection"
@@ -71,6 +72,11 @@ type StatsConfig struct {
 	Interval        time.Duration // how often to rebuild
 	Concurrency     int           // max concurrent wallet crawls (<1 = serial)
 }
+
+var (
+	mWatchsetSize = metrics.NewGauge("lobsterroll_leaderboard_watchset_size", "number of wallets in the current watchset")
+	mRefreshes    = metrics.NewCounter("lobsterroll_leaderboard_refreshes_total", "successful stats/watchset refreshes")
+)
 
 // errAllWindowsFailed is returned when every candidate-window fetch failed, so
 // the pool is empty for transient reasons (not because the leaderboard is
@@ -285,6 +291,8 @@ func (s *StatsSyncer) refresh(ctx context.Context) error {
 	if err := s.store.SetLastSync(ctx, time.Now().Unix()); err != nil {
 		return err
 	}
+	mWatchsetSize.Set(float64(len(watchset)))
+	mRefreshes.Inc()
 	return nil
 }
 

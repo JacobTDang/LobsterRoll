@@ -10,9 +10,12 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/JacobTDang/LobsterRoll/pkg/metrics"
 	"github.com/JacobTDang/LobsterRoll/services/pricewatch/internal/clv"
 	"github.com/JacobTDang/LobsterRoll/services/pricewatch/internal/store"
 )
+
+var mSettled = metrics.NewCounter("lobsterroll_pricewatch_clv_settled_total", "trades with computed CLV")
 
 // TradeStore is the subset of the snapshot store the settler needs.
 type TradeStore interface {
@@ -75,6 +78,7 @@ func (s *Settler) Run(ctx context.Context) {
 		settled++
 	}
 	if settled > 0 {
+		mSettled.Add(float64(settled))
 		s.log.Info("settled CLV", "count", settled)
 	}
 }

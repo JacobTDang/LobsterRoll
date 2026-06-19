@@ -10,10 +10,13 @@ import (
 
 	"github.com/JacobTDang/LobsterRoll/pkg/bus"
 	"github.com/JacobTDang/LobsterRoll/pkg/config"
+	"github.com/JacobTDang/LobsterRoll/pkg/metrics"
 	"github.com/JacobTDang/LobsterRoll/services/trader/internal/caps"
 	"github.com/JacobTDang/LobsterRoll/services/trader/internal/clob"
 	"github.com/JacobTDang/LobsterRoll/services/trader/internal/halt"
 )
+
+var mPlaced = metrics.NewCounter("lobsterroll_trader_orders_placed_total", "orders placed on the CLOB")
 
 // Caps is the hard-cap safety net.
 type Caps interface {
@@ -139,6 +142,7 @@ func (h *Handler) place(ctx context.Context, p bus.OrderProposal, source string)
 	if err := h.pub.PublishResult(result); err != nil {
 		h.log.Error("CRITICAL: placed order but failed to publish result", "id", p.ID, "order", res.OrderID, "err", err)
 	}
+	mPlaced.Inc()
 	h.log.Info("order placed", "id", p.ID, "order", res.OrderID, "status", res.Status, "matched", result.Filled, "source", source, "sizeUSD", p.SizeUSD)
 }
 

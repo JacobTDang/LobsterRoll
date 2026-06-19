@@ -9,10 +9,13 @@ import (
 
 	"github.com/JacobTDang/LobsterRoll/pkg/bus"
 	"github.com/JacobTDang/LobsterRoll/pkg/dedup"
+	"github.com/JacobTDang/LobsterRoll/pkg/metrics"
 	"github.com/JacobTDang/LobsterRoll/pkg/sizing"
 	"github.com/JacobTDang/LobsterRoll/services/strategy/internal/decide"
 	"github.com/JacobTDang/LobsterRoll/services/strategy/internal/marketdata"
 )
+
+var mProposals = metrics.NewCounter("lobsterroll_strategy_proposals_total", "order proposals published")
 
 // MarketSource provides live market data for a token.
 type MarketSource interface {
@@ -103,6 +106,7 @@ func (h *Handler) Handle(ctx context.Context, td bus.TradeDetected) {
 		h.log.Error("publish proposal failed", "id", out.Proposal.ID, "err", err)
 		return
 	}
+	mProposals.Inc()
 	h.log.Info("proposed", "id", out.Proposal.ID, "side", out.Proposal.Side,
 		"sizeUSD", out.Proposal.SizeUSD, "limit", out.Proposal.LimitPrice)
 }

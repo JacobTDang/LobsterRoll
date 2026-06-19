@@ -95,7 +95,11 @@ func (p *fakePub) PublishResult(r bus.OrderResult) error {
 	p.results = append(p.results, r)
 	return nil
 }
-func (p *fakePub) last() bus.OrderResult { p.mu.Lock(); defer p.mu.Unlock(); return p.results[len(p.results)-1] }
+func (p *fakePub) last() bus.OrderResult {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.results[len(p.results)-1]
+}
 
 func quiet() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 

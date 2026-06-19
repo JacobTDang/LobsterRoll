@@ -212,7 +212,6 @@ func (of OrderFilled) FillFor(wallet common.Address) (Fill, bool) {
 	}, true
 }
 
-
 func tradeFromFill(f Fill) Trade {
 	side := "sell"
 	if f.Buy {

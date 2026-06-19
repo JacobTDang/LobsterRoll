@@ -16,11 +16,19 @@ import (
 
 	"github.com/JacobTDang/LobsterRoll/pkg/bus"
 	"github.com/JacobTDang/LobsterRoll/pkg/chain"
+	"github.com/JacobTDang/LobsterRoll/pkg/metrics"
 	"github.com/JacobTDang/LobsterRoll/services/watcher/internal/backoff"
 	"github.com/JacobTDang/LobsterRoll/services/watcher/internal/decode"
 	"github.com/JacobTDang/LobsterRoll/services/watcher/internal/dedup"
 	"github.com/JacobTDang/LobsterRoll/services/watcher/internal/engine"
 	"github.com/JacobTDang/LobsterRoll/services/watcher/internal/watchset"
+)
+
+var (
+	mWSConnected = metrics.NewGauge("lobsterroll_watcher_ws_connected", "1 while subscribed to chain logs, 0 otherwise")
+	mConnects    = metrics.NewCounter("lobsterroll_watcher_ws_connects_total", "chain log subscription (re)connects")
+	mTrades      = metrics.NewCounter("lobsterroll_watcher_trades_total", "trades published to the bus")
+	mLastTrade   = metrics.NewGauge("lobsterroll_watcher_last_trade_unix", "unix time of the last published trade")
 )
 
 // ChainClient is the subset of go-ethereum's ethclient the watcher needs.
@@ -170,6 +178,9 @@ func (w *Watcher) subscribe(ctx context.Context) error {
 		return err
 	}
 	defer sub.Unsubscribe()
+	mConnects.Inc()
+	mWSConnected.Set(1)
+	defer mWSConnected.Set(0)
 
 	// buf holds the unpublished logs of the current block. A block is flushed
 	// (and the cursor advanced) only once we know it is complete: either a higher
@@ -269,6 +280,8 @@ func (w *Watcher) emit(_ context.Context, tr decode.Trade) error {
 	if err := w.pub.PublishTrade(td); err != nil {
 		return err
 	}
+	mTrades.Inc()
+	mLastTrade.Set(float64(td.ObservedAt.Unix()))
 	w.log.Info("trade detected",
 		"wallet", td.Wallet, "side", td.Side, "size", td.Size, "price", td.Price,
 		"token", td.TokenID, "tx", td.TxHash)

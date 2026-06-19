@@ -8,7 +8,11 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/JacobTDang/LobsterRoll/pkg/metrics"
 )
+
+var mSnapshots = metrics.NewCounter("lobsterroll_pricewatch_snapshots_total", "midprice snapshots stored")
 
 // Pricer fetches a token's current midprice. *client.Client satisfies it.
 type Pricer interface {
@@ -82,6 +86,8 @@ func (t *Tracker) Poll(ctx context.Context, now int64) {
 		}
 		if err := t.store.Put(ctx, tok, now, mid); err != nil {
 			t.log.Warn("snapshot store failed", "token", tok, "err", err)
+			continue
 		}
+		mSnapshots.Inc()
 	}
 }

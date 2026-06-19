@@ -17,8 +17,11 @@ import (
 	lobsterrollv1 "github.com/JacobTDang/LobsterRoll/gen/go"
 	"github.com/JacobTDang/LobsterRoll/pkg/bus"
 	"github.com/JacobTDang/LobsterRoll/pkg/dedup"
+	"github.com/JacobTDang/LobsterRoll/pkg/metrics"
 	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/format"
 )
+
+var mAlertsSent = metrics.NewCounter("lobsterroll_notifier_alerts_sent_total", "alerts delivered to Telegram")
 
 // Enricher resolves a tokenId to market context. *lobsterrollv1.EnrichmentClient
 // satisfies it.
@@ -117,6 +120,7 @@ func (h *Handler) Handle(ctx context.Context, td bus.TradeDetected) {
 		h.log.Error("send alert failed", "wallet", td.Wallet, "tx", td.TxHash, "err", err)
 		return
 	}
+	mAlertsSent.Inc()
 	h.log.Info("alert sent", "wallet", td.Wallet, "side", td.Side, "size", td.Size)
 }
 
@@ -195,5 +199,6 @@ func (h *Handler) HandleConsensus(ctx context.Context, sig bus.ConsensusSignal) 
 		h.log.Error("send consensus alert failed", "token", sig.TokenID, "count", sig.Count, "err", err)
 		return
 	}
+	mAlertsSent.Inc()
 	h.log.Info("consensus alert sent", "token", sig.TokenID, "side", sig.Side, "count", sig.Count)
 }

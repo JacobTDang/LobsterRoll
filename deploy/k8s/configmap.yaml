@@ -7,6 +7,11 @@ data:
   # ---- bus ----
   NATS_URL: "nats://nats:4222"
 
+  # ---- observability ----
+  # Every service serves Prometheus metrics at /metrics on this port (separate
+  # pods, so the shared port is fine). Empty disables it (local multi-svc runs).
+  METRICS_ADDR: ":9090"
+
   # ---- gRPC dial addresses (consumers dial these Services; the owning service
   # overrides its own var to a bind address ":<port>" in its Deployment) ----
   LEADERBOARD_GRPC_ADDR: "leaderboard:50051"

@@ -175,8 +175,8 @@ func TestConsensus_CombinedUSD(t *testing.T) {
 	s := openTemp(t, 6*time.Hour, 3, clk.now)
 	const tok, side = "TOK", "buy"
 
-	rec(t, s, trade("0xA", tok, side, "10", "0.5"))  // 5
-	rec(t, s, trade("0xB", tok, side, "20", "0.25")) // 5
+	rec(t, s, trade("0xA", tok, side, "10", "0.5"))      // 5
+	rec(t, s, trade("0xB", tok, side, "20", "0.25"))     // 5
 	c, _ := rec(t, s, trade("0xC", tok, side, "4", "1")) // 4
 	want := 5.0 + 5.0 + 4.0
 	if c.CombinedUSD < want-1e-9 || c.CombinedUSD > want+1e-9 {

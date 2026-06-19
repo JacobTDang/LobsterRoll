@@ -30,7 +30,7 @@ type Caps struct {
 
 	mu           sync.Mutex
 	daySpent     float64
-	dayKey       string // UTC date of the current day window
+	dayKey       string  // UTC date of the current day window
 	openExposure float64 // signed net long exposure (buys add, sells subtract)
 	ledger       Ledger
 	log          *slog.Logger

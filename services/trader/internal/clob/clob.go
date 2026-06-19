@@ -2,7 +2,8 @@
 // placement.
 //
 // L2 auth (per request): POLY_SIGNATURE = base64url(HMAC_SHA256(
-//   base64url_decode(secret), timestamp + method + requestPath + body)).
+//
+//	base64url_decode(secret), timestamp + method + requestPath + body)).
 //
 // NOTE: the exact /order payload field names must be confirmed against the live
 // CLOB before placing a real order (see the gated integration test).

@@ -119,7 +119,7 @@ func TestAggregator_SidesSeparate(t *testing.T) {
 	const tok = "TOK"
 
 	a.Handle(ctx, trade("0xA", tok, "buy", "1", "1"))
-	a.Handle(ctx, trade("0xB", tok, "buy", "1", "1")) // buy reaches 2 -> fire
+	a.Handle(ctx, trade("0xB", tok, "buy", "1", "1"))  // buy reaches 2 -> fire
 	a.Handle(ctx, trade("0xA", tok, "sell", "1", "1")) // sell only 1, no fire
 
 	got := fp.snapshot()
@@ -155,9 +155,9 @@ func TestAggregator_CombinedUSD(t *testing.T) {
 	ctx := context.Background()
 	const tok, side = "TOK", "buy"
 
-	a.Handle(ctx, trade("0xA", tok, side, "10", "0.5")) // 5
+	a.Handle(ctx, trade("0xA", tok, side, "10", "0.5"))  // 5
 	a.Handle(ctx, trade("0xB", tok, side, "20", "0.25")) // 5
-	a.Handle(ctx, trade("0xC", tok, side, "4", "1")) // 4
+	a.Handle(ctx, trade("0xC", tok, side, "4", "1"))     // 4
 
 	got := fp.snapshot()
 	if len(got) != 1 {

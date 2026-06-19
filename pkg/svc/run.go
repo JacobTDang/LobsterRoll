@@ -9,6 +9,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/JacobTDang/LobsterRoll/pkg/metrics"
 )
 
 // detachedTimeout bounds work that outlives shutdown cancellation.
@@ -32,6 +34,18 @@ func Run(name string, fn func(ctx context.Context, log *slog.Logger) error) {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// Expose /metrics when METRICS_ADDR is set (every service, no per-service
+	// wiring). Left off (empty) by default so local multi-service runs don't
+	// collide on a port; k8s sets it per-pod.
+	if addr := os.Getenv("METRICS_ADDR"); addr != "" {
+		metrics.NewGauge("lobsterroll_up", "1 while the service is running").Set(1)
+		go func() {
+			if err := metrics.Serve(ctx, addr, log); err != nil {
+				log.Error("metrics server failed", "err", err)
+			}
+		}()
+	}
 
 	log.Info("starting")
 	if err := fn(ctx, log); err != nil {

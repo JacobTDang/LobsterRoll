@@ -61,8 +61,8 @@ func pad32(b []byte) []byte {
 	return out
 }
 
-func uintWord(n *big.Int) []byte { return pad32(n.Bytes()) }
-func u8Word(n uint8) []byte      { return pad32([]byte{n}) }
+func uintWord(n *big.Int) []byte       { return pad32(n.Bytes()) }
+func u8Word(n uint8) []byte            { return pad32([]byte{n}) }
 func addrWord(a common.Address) []byte { return pad32(a.Bytes()) }
 
 // OrderTypeHash returns keccak256(orderTypeString).

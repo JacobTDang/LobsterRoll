@@ -9,8 +9,11 @@ import (
 	"time"
 
 	"github.com/JacobTDang/LobsterRoll/pkg/bus"
+	"github.com/JacobTDang/LobsterRoll/pkg/metrics"
 	"github.com/JacobTDang/LobsterRoll/services/consensus/internal/window"
 )
+
+var mFired = metrics.NewCounter("lobsterroll_consensus_fired_total", "consensus signals published")
 
 // Publisher publishes consensus signals.
 type Publisher interface {
@@ -74,6 +77,7 @@ func (a *Aggregator) Handle(ctx context.Context, td bus.TradeDetected) {
 		a.log.Error("publish consensus", "err", err, "token", td.TokenID, "side", td.Side)
 		return
 	}
+	mFired.Inc()
 	a.log.Info("consensus signal",
 		"token", sig.TokenID, "side", sig.Side, "count", sig.Count,
 		"combined_usd", sig.CombinedUSD, "window_secs", sig.WindowSecs)
