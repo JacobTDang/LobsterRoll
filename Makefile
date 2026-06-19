@@ -3,7 +3,7 @@ REGISTRY  ?= ghcr.io/jacobtdang
 TAG       ?= dev
 PLATFORMS ?= linux/amd64,linux/arm64
 
-.PHONY: all proto build test test-race vet lint tidy docker buildx k3d-up k3d-down deploy clean run-local natsd inject-trade trader-keys verify-alerts verify-consensus tg-chatid images k8s-secrets redeploy k8s-status dry-run dry-stop dry-logs
+.PHONY: all proto build test test-race vet lint tidy docker buildx k3d-up k3d-down deploy clean run-local natsd inject-trade trader-keys verify-alerts verify-consensus verify-sizing verify-clv tg-chatid images k8s-secrets redeploy k8s-status dry-run dry-stop dry-logs
 
 all: test build
 
@@ -33,6 +33,14 @@ verify-alerts:
 # Headless consensus check: injects a 3-wallet cohort and asserts a 🔥 CONSENSUS alert.
 verify-consensus:
 	bash scripts/verify-consensus.sh
+
+# Print sample signals through the sizing engine (local, US-safe) for tuning.
+verify-sizing:
+	go run ./tools/verifysizing
+
+# Drive the real snapshot store through record->settle->CLV and assert the value.
+verify-clv:
+	go test -run TestVerifyCLV -v ./services/pricewatch/internal/settle/
 
 # All-day DRY RUN: detached read->alert pipeline (no trader). Alerts -> Telegram.
 dry-run:
