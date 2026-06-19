@@ -68,13 +68,6 @@ func (c *Cache) Replace(ps []Position) {
 	c.mu.Unlock()
 }
 
-// Loaded reports whether a snapshot has been successfully loaded at least once.
-func (c *Cache) Loaded() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.snap.ok
-}
-
 // Match decides whether a whale's trade (token + side + wallet) touches a held
 // position worth a priority alert. Fires on the high-signal cases only (phase 1):
 // the whale EXITS the exact outcome you hold (sell same token), or BUYS the

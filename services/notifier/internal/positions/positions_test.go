@@ -76,11 +76,8 @@ func TestCache_SelfGuardAndUnheld(t *testing.T) {
 }
 
 func TestCache_NotLoaded(t *testing.T) {
-	c := NewCache("0xme")
-	if c.Loaded() {
-		t.Error("Loaded should be false before Replace")
-	}
-	if _, _, fire := c.Match("tokA", "sell", "0xwhale"); fire {
-		t.Error("no match before a snapshot is loaded")
+	c := NewCache("0xme") // never Replace()d -> snapshot not loaded
+	if _, kind, fire := c.Match("tokA", "sell", "0xwhale"); fire || kind != None {
+		t.Errorf("no match before a snapshot is loaded: kind=%v fire=%v", kind, fire)
 	}
 }

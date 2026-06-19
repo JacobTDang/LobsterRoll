@@ -22,7 +22,10 @@ import (
 	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/positions"
 )
 
-var mAlertsSent = metrics.NewCounter("lobsterroll_notifier_alerts_sent_total", "alerts delivered to Telegram")
+var (
+	mAlertsSent     = metrics.NewCounter("lobsterroll_notifier_alerts_sent_total", "alerts delivered to Telegram")
+	mPositionAlerts = metrics.NewCounter("lobsterroll_notifier_position_alerts_total", "priority alerts on markets the user holds")
+)
 
 // Enricher resolves a tokenId to market context. *lobsterrollv1.EnrichmentClient
 // satisfies it.
@@ -129,12 +132,16 @@ func (h *Handler) Handle(ctx context.Context, td bus.TradeDetected) {
 	h.maybePositionAlert(ctx, td, ws)
 }
 
-var mPositionAlerts = metrics.NewCounter("lobsterroll_notifier_position_alerts_total", "priority alerts on markets the user holds")
-
 // maybePositionAlert sends a separate priority alert when this whale trade
 // touches a market the user holds (whale exiting your outcome, or buying against
 // you). No-op when position tracking is disabled. Deduped independently of the
 // normal alert via a "mypos:" key prefix.
+//
+// It runs after the cooldown short-circuit, but no position alert is lost: the
+// cooldown key (wallet+token+side) is exactly the dimension that decides whether
+// this fires, so every trade in a cooled burst yields the same Match result —
+// the burst's FIRST trade always passes the cooldown and delivers the alert
+// once, which is the desired one-per-burst behavior.
 func (h *Handler) maybePositionAlert(ctx context.Context, td bus.TradeDetected, ws format.WhaleStats) {
 	if h.myPos == nil {
 		return

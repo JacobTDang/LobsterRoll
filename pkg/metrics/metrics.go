@@ -47,19 +47,16 @@ func Serve(ctx context.Context, addr string, log *slog.Logger) error {
 	mux.Handle("/metrics", promhttp.Handler())
 	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 
-	done := make(chan struct{})
-	go func() {
-		<-ctx.Done()
+	log.Info("metrics serving", "addr", addr)
+	errCh := make(chan error, 1) // buffered: the goroutine always exits, so no leak
+	go func() { errCh <- srv.ListenAndServe() }()
+
+	select {
+	case <-ctx.Done():
 		shctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		_ = srv.Shutdown(shctx)
-		close(done)
-	}()
-
-	log.Info("metrics serving", "addr", addr)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		return err
+		return srv.Shutdown(shctx) // ListenAndServe then returns ErrServerClosed into errCh
+	case err := <-errCh:
+		return err // startup failure (e.g. addr already in use) — no lingering goroutine
 	}
-	<-done
-	return nil
 }

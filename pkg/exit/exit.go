@@ -45,7 +45,7 @@ type Position struct {
 type Config struct {
 	StopLoss       float64 // sell ALL if CurPrice <= StopLoss
 	TakeProfit     float64 // scale out when CurPrice >= TakeProfit
-	TakeProfitFrac float64 // fraction of current shares to sell at take-profit (0,1]
+	TakeProfitFrac float64 // fraction of current shares to sell at take-profit; (0,1], and an unset/invalid value sells the FULL position (clampFrac)
 	HedgeLockMin   float64 // recommend a hedge when lockable profit fraction (1-entry-opp) >= this
 	LeaderExited   bool    // the copied leader has exited this market
 	LeaderExitFrac float64 // fraction of current shares to sell when the leader exits (0,1]
@@ -58,8 +58,10 @@ type Config struct {
 func LockableProfitFrac(entry, opp float64) float64 { return 1 - entry - opp }
 
 // Decide returns the single highest-priority recommended action. Priority:
-// stop-loss (risk) > leader exit (the smart money left) > hedge-lock (free, only
-// when it beats selling) > take-profit > hold.
+// stop-loss (risk) > leader exit (the smart money left) > hedge-lock (lock
+// guaranteed profit once the lockable-profit threshold is met) > take-profit >
+// hold. Priority is strictly by rule order; it does not compare expected values
+// between rules.
 func Decide(p Position, cfg Config) Action {
 	if p.Shares <= 0 {
 		return Action{Kind: Hold, Reason: "no position"}
