@@ -140,6 +140,17 @@ func newWatcher(t *testing.T, fc *fakeChain) (*Watcher, *fakePub, *fakeCursor) {
 	return w, pub, cur
 }
 
+// liveLoop creates the subscription the way cycle() does, then runs the live loop
+// — letting the live-path tests exercise runLive with the fake chain's stream.
+func liveLoop(ctx context.Context, w *Watcher, fc *fakeChain) error {
+	ch := make(chan types.Log, 1024)
+	sub, err := fc.SubscribeFilterLogs(ctx, w.baseQuery(), ch)
+	if err != nil {
+		return err
+	}
+	return w.runLive(ctx, ch, sub)
+}
+
 func TestBackfill_PublishesAndAdvances(t *testing.T) {
 	logs := goldenLogs(t)
 	block := logs[0].BlockNumber
@@ -199,7 +210,7 @@ func TestSubscribe_LivePublishes(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- w.subscribe(ctx) }()
+	go func() { done <- liveLoop(ctx, w, fc) }()
 
 	deadline := time.Now().Add(5 * time.Second)
 	for pub.count() == 0 && time.Now().Before(deadline) {
@@ -229,7 +240,7 @@ func TestSubscribe_SkipsReorgRemovedLog(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go func() { _ = w.subscribe(ctx) }()
+	go func() { _ = liveLoop(ctx, w, fc) }()
 	time.Sleep(300 * time.Millisecond) // allow boundary + settle flushes
 	cancel()
 
@@ -259,7 +270,7 @@ func TestSubscribe_DedupAcrossBackfillAndLive(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go func() { _ = w.subscribe(ctx) }()
+	go func() { _ = liveLoop(ctx, w, fc) }()
 	time.Sleep(300 * time.Millisecond) // allow boundary + settle flushes
 	cancel()
 	if pub.count() != 1 {
@@ -276,7 +287,7 @@ func TestProcessBatch_PublishFailure_NoCommit(t *testing.T) {
 	w, pub, cur := newWatcher(t, &fakeChain{})
 
 	pub.err = errors.New("nats down")
-	if err := w.processBatch(context.Background(), logs, block, true); err == nil {
+	if err := w.processBatch(context.Background(), logs, block, true, false); err == nil {
 		t.Fatal("expected error when publish fails")
 	}
 	if pub.count() != 0 {
@@ -291,7 +302,7 @@ func TestProcessBatch_PublishFailure_NoCommit(t *testing.T) {
 
 	// Recover: the same logs must now publish (not silently dropped).
 	pub.err = nil
-	if err := w.processBatch(context.Background(), logs, block, true); err != nil {
+	if err := w.processBatch(context.Background(), logs, block, true, false); err != nil {
 		t.Fatalf("retry: %v", err)
 	}
 	if pub.count() != 1 {
@@ -307,7 +318,7 @@ func TestProcessBatch_PublishFailure_NoCommit(t *testing.T) {
 func TestProcessBatch_NoAdvanceWhenNotDoAdvance(t *testing.T) {
 	logs := goldenLogs(t)
 	w, pub, cur := newWatcher(t, &fakeChain{})
-	if err := w.processBatch(context.Background(), logs, logs[0].BlockNumber, false); err != nil {
+	if err := w.processBatch(context.Background(), logs, logs[0].BlockNumber, false, false); err != nil {
 		t.Fatalf("processBatch: %v", err)
 	}
 	if pub.count() != 1 {
@@ -315,5 +326,18 @@ func TestProcessBatch_NoAdvanceWhenNotDoAdvance(t *testing.T) {
 	}
 	if cur.set {
 		t.Fatal("cursor advanced with doAdvance=false (would skip an incomplete block on restart)")
+	}
+}
+
+// TestProcessBatch_MarksBackfilled verifies the backfilled flag reaches the bus,
+// so consensus can ignore historical replays.
+func TestProcessBatch_MarksBackfilled(t *testing.T) {
+	logs := goldenLogs(t)
+	w, pub, _ := newWatcher(t, &fakeChain{})
+	if err := w.processBatch(context.Background(), logs, logs[0].BlockNumber, true, true); err != nil {
+		t.Fatalf("processBatch: %v", err)
+	}
+	if pub.count() != 1 || !pub.first().Backfilled {
+		t.Fatalf("published trade Backfilled = %v, want true", pub.first().Backfilled)
 	}
 }

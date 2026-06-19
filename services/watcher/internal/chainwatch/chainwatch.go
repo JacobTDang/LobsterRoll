@@ -133,7 +133,34 @@ func (w *Watcher) cycle(ctx context.Context) error {
 	if err := w.backfill(ctx, start, head); err != nil {
 		return err
 	}
-	return w.subscribe(ctx)
+
+	// Subscribe AFTER the (potentially large) backfill, then catch up any blocks
+	// mined while it ran before entering the live loop. The live stream only
+	// delivers blocks produced after it activates, so without this the window
+	// [head+1, subscription-activation] is never scanned and its trades are
+	// silently dropped. The catch-up overlaps the live stream; dedup (w.seen)
+	// absorbs the overlap. Subscribing after the big backfill (not before) avoids
+	// buffering the full exchange log stream during a long reconnect replay.
+	ch := make(chan types.Log, 1024)
+	sub, err := w.client.SubscribeFilterLogs(ctx, w.baseQuery(), ch)
+	if err != nil {
+		return err
+	}
+	defer sub.Unsubscribe()
+	mConnects.Inc()
+	mWSConnected.Set(1)
+	defer mWSConnected.Set(0)
+
+	newHead, err := w.client.BlockNumber(ctx)
+	if err != nil {
+		return err
+	}
+	if newHead > head {
+		if err := w.backfill(ctx, head+1, newHead); err != nil {
+			return err
+		}
+	}
+	return w.runLive(ctx, ch, sub)
 }
 
 // startBlock resumes from the persisted cursor, or starts at head on first run
@@ -164,24 +191,19 @@ func (w *Watcher) backfill(ctx context.Context, from, to uint64) error {
 		}
 		// A backfill chunk covers only past (complete) blocks, so it's safe to
 		// advance the cursor to its end — but only after every trade is published.
-		if err := w.processBatch(ctx, logs, end, true); err != nil {
+		// backfilled=true: these are replays of historical fills, so consensus must
+		// not treat them as real-time convergence.
+		if err := w.processBatch(ctx, logs, end, true, true); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (w *Watcher) subscribe(ctx context.Context) error {
-	ch := make(chan types.Log, 256)
-	sub, err := w.client.SubscribeFilterLogs(ctx, w.baseQuery(), ch)
-	if err != nil {
-		return err
-	}
-	defer sub.Unsubscribe()
-	mConnects.Inc()
-	mWSConnected.Set(1)
-	defer mWSConnected.Set(0)
-
+// runLive consumes the live subscription, buffering each block until complete
+// before flushing + advancing the cursor. The subscription is created by cycle so
+// it can be established before the catch-up backfill.
+func (w *Watcher) runLive(ctx context.Context, ch <-chan types.Log, sub ethereum.Subscription) error {
 	// buf holds the unpublished logs of the current block. A block is flushed
 	// (and the cursor advanced) only once we know it is complete: either a higher
 	// block has arrived (boundary), or no new log has arrived for a full tick
@@ -197,10 +219,10 @@ func (w *Watcher) subscribe(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			// Emit what we have for latency, but don't advance: we may be mid-block.
-			_ = w.processBatch(ctx, buf, pendingBlock, false)
+			_ = w.processBatch(ctx, buf, pendingBlock, false, false)
 			return nil
 		case err := <-sub.Err():
-			_ = w.processBatch(ctx, buf, pendingBlock, false)
+			_ = w.processBatch(ctx, buf, pendingBlock, false, false)
 			if err != nil {
 				return err
 			}
@@ -211,9 +233,18 @@ func (w *Watcher) subscribe(ctx context.Context) error {
 				w.log.Warn("skipping reorg-removed log", "block", l.BlockNumber, "tx", l.TxHash.Hex(), "idx", l.Index)
 				continue
 			}
+			if pendingBlock > 0 && l.BlockNumber < pendingBlock {
+				// Out-of-order: a log for a block we've already flushed + advanced past.
+				// go-ethereum delivers canonical-chain logs in monotonic block order, so
+				// this shouldn't occur; skip it rather than buffer it under a higher
+				// advance block, which would violate the invariant that the cursor never
+				// advances into a partially-streamed lower block.
+				w.log.Warn("skipping out-of-order log below pending block", "block", l.BlockNumber, "pending", pendingBlock, "tx", l.TxHash.Hex())
+				continue
+			}
 			if len(buf) > 0 && l.BlockNumber > pendingBlock {
 				// The previous block is complete: flush it atomically + advance.
-				if err := w.processBatch(ctx, buf, pendingBlock, true); err != nil {
+				if err := w.processBatch(ctx, buf, pendingBlock, true, false); err != nil {
 					return err
 				}
 				buf = nil
@@ -230,7 +261,7 @@ func (w *Watcher) subscribe(ctx context.Context) error {
 			}
 			if len(buf) > 0 {
 				// Quiet for a full tick: treat the block as settled (complete).
-				if err := w.processBatch(ctx, buf, pendingBlock, true); err != nil {
+				if err := w.processBatch(ctx, buf, pendingBlock, true, false); err != nil {
 					return err
 				}
 				buf = nil
@@ -243,7 +274,7 @@ func (w *Watcher) subscribe(ctx context.Context) error {
 // and only then marks the consumed logs seen and (optionally) advances the
 // cursor. A publish failure leaves nothing marked or advanced, so the batch is
 // safely re-emitted on retry (downstream dedups by source-trade id).
-func (w *Watcher) processBatch(ctx context.Context, logs []types.Log, advanceBlock uint64, doAdvance bool) error {
+func (w *Watcher) processBatch(ctx context.Context, logs []types.Log, advanceBlock uint64, doAdvance, backfilled bool) error {
 	if len(logs) == 0 {
 		if doAdvance {
 			return w.advance(ctx, advanceBlock)
@@ -252,7 +283,7 @@ func (w *Watcher) processBatch(ctx context.Context, logs []types.Log, advanceBlo
 	}
 	trades, consumed, _ := engine.ProcessBatch(logs, w.set, w.seen, w.log)
 	for _, tr := range trades {
-		if err := w.emit(ctx, tr); err != nil {
+		if err := w.emit(ctx, tr, backfilled); err != nil {
 			return err // nothing marked/advanced; retry re-emits (dedup-safe downstream)
 		}
 	}
@@ -265,7 +296,7 @@ func (w *Watcher) processBatch(ctx context.Context, logs []types.Log, advanceBlo
 	return nil
 }
 
-func (w *Watcher) emit(_ context.Context, tr decode.Trade) error {
+func (w *Watcher) emit(_ context.Context, tr decode.Trade, backfilled bool) error {
 	td := bus.TradeDetected{
 		Wallet:      tr.Wallet,
 		TokenID:     tr.TokenID,
@@ -276,6 +307,7 @@ func (w *Watcher) emit(_ context.Context, tr decode.Trade) error {
 		LogIndex:    tr.LogIndex,
 		BlockNumber: tr.BlockNumber,
 		ObservedAt:  w.now().UTC(),
+		Backfilled:  backfilled,
 	}
 	if err := w.pub.PublishTrade(td); err != nil {
 		return err

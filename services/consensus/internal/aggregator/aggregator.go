@@ -56,6 +56,12 @@ func New(store Recorder, pub Publisher, win time.Duration, now func() time.Time,
 // Handle records the trade and, when the window store reports a fresh cohort has
 // reached the threshold (or grown to a new max), publishes a consensus signal.
 func (a *Aggregator) Handle(ctx context.Context, td bus.TradeDetected) {
+	// Backfill replays are historical fills delivered in a burst; counting them
+	// would collapse trades that happened hours apart into one rolling window and
+	// fire a false consensus. Only real-time fills feed convergence detection.
+	if td.Backfilled {
+		return
+	}
 	cohort, fire, err := a.store.Record(ctx, td)
 	if err != nil {
 		a.log.Error("record trade", "err", err, "token", td.TokenID, "side", td.Side)

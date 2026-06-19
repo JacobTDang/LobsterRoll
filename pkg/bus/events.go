@@ -14,6 +14,10 @@ type TradeDetected struct {
 	LogIndex    uint64    `json:"log_index"`
 	BlockNumber uint64    `json:"block_number"`
 	ObservedAt  time.Time `json:"observed_at"`
+	// Backfilled marks a historical fill replayed during startup/reconnect backfill
+	// (not a real-time fill). Consensus ignores these: replaying many hours-old
+	// trades at once must not collapse into a false real-time convergence signal.
+	Backfilled bool `json:"backfilled,omitempty"`
 }
 
 // OrderProposal is published on SubjectOrderProposed by strategy-svc.

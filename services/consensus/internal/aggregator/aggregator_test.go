@@ -63,6 +63,28 @@ func trade(wallet, token, side, size, price string) bus.TradeDetected {
 	return bus.TradeDetected{Wallet: wallet, TokenID: token, Side: side, Size: size, Price: price}
 }
 
+func TestAggregator_IgnoresBackfilledTrades(t *testing.T) {
+	clk := &clock{t: time.Unix(1_700_000_000, 0)}
+	a, fp := newAgg(t, 3, time.Hour, clk.now)
+	ctx := context.Background()
+
+	// Three distinct wallets converge on the same token+side, but every trade is a
+	// backfill replay -> must NOT fire (would be a false real-time consensus).
+	for _, w := range []string{"0xa", "0xb", "0xc"} {
+		a.Handle(ctx, bus.TradeDetected{Wallet: w, TokenID: "T", Side: "buy", Size: "10", Price: "0.5", Backfilled: true})
+	}
+	if n := len(fp.snapshot()); n != 0 {
+		t.Fatalf("backfilled trades fired %d consensus signals, want 0", n)
+	}
+	// The same cohort arriving live still fires.
+	for _, w := range []string{"0xa", "0xb", "0xc"} {
+		a.Handle(ctx, bus.TradeDetected{Wallet: w, TokenID: "T", Side: "buy", Size: "10", Price: "0.5"})
+	}
+	if n := len(fp.snapshot()); n != 1 {
+		t.Fatalf("live cohort fired %d, want 1", n)
+	}
+}
+
 func TestAggregator_FiresOnceThenGrows(t *testing.T) {
 	clk := &clock{t: time.Unix(1_700_000_000, 0)}
 	a, fp := newAgg(t, 3, 6*time.Hour, clk.now)
