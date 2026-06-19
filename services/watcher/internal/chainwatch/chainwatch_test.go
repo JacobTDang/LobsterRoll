@@ -165,7 +165,7 @@ func TestBackfill_PublishesAndAdvances(t *testing.T) {
 	}
 	w, pub, cur := newWatcher(t, fc)
 
-	if err := w.backfill(context.Background(), block, block); err != nil {
+	if err := w.backfill(context.Background(), block, block, true); err != nil {
 		t.Fatalf("backfill: %v", err)
 	}
 	if pub.count() != 1 {
@@ -183,7 +183,7 @@ func TestBackfill_PublishesAndAdvances(t *testing.T) {
 func TestBackfill_Chunks(t *testing.T) {
 	fc := &fakeChain{head: 10, rangeLogs: func(from, to uint64) []types.Log { return nil }}
 	w, _, cur := newWatcher(t, fc) // chunk=1
-	if err := w.backfill(context.Background(), 1, 5); err != nil {
+	if err := w.backfill(context.Background(), 1, 5, true); err != nil {
 		t.Fatalf("backfill: %v", err)
 	}
 	if fc.filterCalls != 5 {
@@ -261,7 +261,7 @@ func TestSubscribe_DedupAcrossBackfillAndLive(t *testing.T) {
 	w, pub, _ := newWatcher(t, fc)
 	w.chunk = defaultChunk
 
-	if err := w.backfill(context.Background(), block, block); err != nil {
+	if err := w.backfill(context.Background(), block, block, true); err != nil {
 		t.Fatalf("backfill: %v", err)
 	}
 	if pub.count() != 1 {
@@ -339,5 +339,22 @@ func TestProcessBatch_MarksBackfilled(t *testing.T) {
 	}
 	if pub.count() != 1 || !pub.first().Backfilled {
 		t.Fatalf("published trade Backfilled = %v, want true", pub.first().Backfilled)
+	}
+}
+
+// TestBackfill_CatchupNotBackfilled: the near-head catch-up must emit real-time
+// trades (Backfilled=false) so a convergence-completing trade on reconnect still
+// feeds consensus.
+func TestBackfill_CatchupNotBackfilled(t *testing.T) {
+	logs := goldenLogs(t)
+	block := logs[0].BlockNumber
+	fc := &fakeChain{head: block, rangeLogs: func(from, to uint64) []types.Log { return logs }}
+	w, pub, _ := newWatcher(t, fc)
+	w.chunk = defaultChunk
+	if err := w.backfill(context.Background(), block, block, false); err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+	if pub.count() != 1 || pub.first().Backfilled {
+		t.Fatalf("catch-up trade Backfilled = %v, want false (real-time)", pub.first().Backfilled)
 	}
 }

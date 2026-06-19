@@ -18,6 +18,7 @@ import (
 	"github.com/JacobTDang/LobsterRoll/pkg/svc"
 	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/approval"
 	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/config"
+	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/dispatch"
 	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/handler"
 	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/positions"
 	"github.com/JacobTDang/LobsterRoll/services/notifier/internal/telegram"
@@ -100,27 +101,8 @@ func run(ctx context.Context, log *slog.Logger) error {
 	// trades.detected drain and trip NATS pending limits → silently dropped
 	// messages. Hand sends to a bounded worker pool instead; if the queue saturates
 	// we drop EXPLICITLY (metered) rather than letting NATS drop silently.
-	jobs := make(chan func(), alertQueueSize)
-	for i := 0; i < alertWorkers; i++ {
-		g.Go(func() error {
-			for {
-				select {
-				case <-ctx.Done():
-					return nil
-				case f := <-jobs:
-					f()
-				}
-			}
-		})
-	}
-	submit := func(f func()) {
-		select {
-		case jobs <- f:
-		default:
-			mAlertsDropped.Inc()
-			log.Warn("alert dispatch queue full; dropping alert (telegram slow/rate-limited?)")
-		}
-	}
+	pool := dispatch.New(alertWorkers, alertQueueSize, mAlertsDropped.Inc)
+	submit := pool.Submit
 
 	// One-way alerts on every detected trade (dispatched off the NATS callback).
 	if _, err := sub.OnTradeDetected(cfg.QueueGroup, func(td bus.TradeDetected) {
@@ -157,7 +139,9 @@ func run(ctx context.Context, log *slog.Logger) error {
 		g.Go(func() error { return pollPositions(ctx, posClient, myPos, cfg.UserWallet, cfg.MyPositionsPoll, log) })
 	}
 	log.Info("notifier listening (alerts + approval gate)")
-	return g.Wait()
+	err = g.Wait()
+	pool.Drain() // deliver buffered alerts before exiting instead of abandoning them
+	return err
 }
 
 // pollPositions refreshes the user's open positions on an interval (and once at

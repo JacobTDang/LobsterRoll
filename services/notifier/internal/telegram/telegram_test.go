@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestSend_PayloadAndPath(t *testing.T) {
@@ -59,11 +60,16 @@ func TestSend_RetriesOn429(t *testing.T) {
 	}))
 	defer srv.Close()
 
+	start := time.Now()
 	if err := New(srv.URL, "T", srv.Client()).Send(context.Background(), "1", "x"); err != nil {
 		t.Fatalf("Send should succeed after a 429 retry: %v", err)
 	}
 	if h := atomic.LoadInt32(&hits); h != 2 {
 		t.Errorf("hits = %d, want 2 (429 then 200)", h)
+	}
+	// retry_after was 0, so the >=1s floor must apply (no instant-retry busy-loop).
+	if elapsed := time.Since(start); elapsed < 900*time.Millisecond {
+		t.Errorf("retry waited %v, want >=~1s (429 backoff floor)", elapsed)
 	}
 }
 

@@ -130,7 +130,7 @@ func (w *Watcher) cycle(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := w.backfill(ctx, start, head); err != nil {
+	if err := w.backfill(ctx, start, head, true); err != nil { // deep replay: historical
 		return err
 	}
 
@@ -156,7 +156,9 @@ func (w *Watcher) cycle(ctx context.Context) error {
 		return err
 	}
 	if newHead > head {
-		if err := w.backfill(ctx, head+1, newHead); err != nil {
+		// Catch-up blocks just landed -> real-time, so backfilled=false (they must
+		// still feed consensus). Dedup absorbs any overlap with the live stream.
+		if err := w.backfill(ctx, head+1, newHead, false); err != nil {
 			return err
 		}
 	}
@@ -176,7 +178,11 @@ func (w *Watcher) startBlock(ctx context.Context, head uint64) (uint64, error) {
 	return last + 1, nil
 }
 
-func (w *Watcher) backfill(ctx context.Context, from, to uint64) error {
+// backfill scans [from, to] in chunks. backfilled marks the emitted trades:
+// true for the deep replay from the persisted cursor (historical fills consensus
+// must ignore), false for the near-head catch-up after subscribe (those blocks
+// just landed and ARE real-time, so they must still feed consensus).
+func (w *Watcher) backfill(ctx context.Context, from, to uint64, backfilled bool) error {
 	for start := from; start <= to; start += w.chunk {
 		end := start + w.chunk - 1
 		if end > to {
@@ -191,9 +197,7 @@ func (w *Watcher) backfill(ctx context.Context, from, to uint64) error {
 		}
 		// A backfill chunk covers only past (complete) blocks, so it's safe to
 		// advance the cursor to its end — but only after every trade is published.
-		// backfilled=true: these are replays of historical fills, so consensus must
-		// not treat them as real-time convergence.
-		if err := w.processBatch(ctx, logs, end, true, true); err != nil {
+		if err := w.processBatch(ctx, logs, end, true, backfilled); err != nil {
 			return err
 		}
 	}

@@ -30,7 +30,7 @@ func TestStats_UpsertAndGet(t *testing.T) {
 	}
 }
 
-func TestStats_UpsertResetsStaleCLV(t *testing.T) {
+func TestStats_UpsertPreservesCLV(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
 	rec := StatsRecord{Wallet: "0xabc", WinRate: 0.6, ResolvedMarkets: 25, ComputedUnix: 1700000000}
@@ -40,16 +40,20 @@ func TestStats_UpsertResetsStaleCLV(t *testing.T) {
 	if err := s.SetWalletCLV(ctx, "0xabc", 0.08, 100); err != nil {
 		t.Fatalf("SetWalletCLV: %v", err)
 	}
-	if got, _, _ := s.GetStats(ctx, "0xabc"); got.AvgCLV != 0.08 || got.CLVN != 100 {
-		t.Fatalf("after SetWalletCLV: avgCLV=%v n=%v, want 0.08/100", got.AvgCLV, got.CLVN)
-	}
-	// A subsequent refresh (UpsertStats) must clear the prior CLV so a wallet that
-	// drops out of pricewatch can't keep serving it.
+	// A stats refresh must NOT clobber CLV — zeroing it mid-refresh would serve
+	// avg_clv=0 to the trader for the whole crawl. CLV is owned by SetWalletCLV.
 	if err := s.UpsertStats(ctx, rec); err != nil {
 		t.Fatalf("UpsertStats #2: %v", err)
 	}
+	if got, _, _ := s.GetStats(ctx, "0xabc"); got.AvgCLV != 0.08 || got.CLVN != 100 {
+		t.Fatalf("after refresh: avgCLV=%v n=%v, want 0.08/100 (CLV must survive a refresh)", got.AvgCLV, got.CLVN)
+	}
+	// Stale CLV is cleared explicitly (this is what enrichCLV calls for dropped wallets).
+	if err := s.SetWalletCLV(ctx, "0xabc", 0, 0); err != nil {
+		t.Fatalf("SetWalletCLV clear: %v", err)
+	}
 	if got, _, _ := s.GetStats(ctx, "0xabc"); got.AvgCLV != 0 || got.CLVN != 0 {
-		t.Fatalf("after re-upsert: avgCLV=%v n=%v, want 0/0 (stale CLV reset)", got.AvgCLV, got.CLVN)
+		t.Fatalf("after clear: avgCLV=%v n=%v, want 0/0", got.AvgCLV, got.CLVN)
 	}
 }
 

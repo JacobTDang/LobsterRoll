@@ -94,7 +94,9 @@ var defaultCandidateWindows = []client.Window{"7d", "30d", "all"}
 func (s *StatsSyncer) candidateWindows() []client.Window {
 	out := make([]client.Window, 0, len(defaultCandidateWindows)+1)
 	seen := make(map[client.Window]bool)
-	for _, w := range append([]client.Window{s.cfg.Window}, defaultCandidateWindows...) {
+	// Defaults first (preserve the established 7d/30d/all ordering), then append the
+	// operator window — so it only ADDS a window and never reorders the pipeline.
+	for _, w := range append(append([]client.Window{}, defaultCandidateWindows...), s.cfg.Window) {
 		if w != "" && !seen[w] {
 			seen[w] = true
 			out = append(out, w)
@@ -330,7 +332,9 @@ func (s *StatsSyncer) enrichCLV(ctx context.Context, statsByWallet map[string]se
 		s.log.Warn("clv fetch failed; proceeding without CLV", "err", err)
 		return
 	}
+	returned := make(map[string]bool, len(resp.GetClv()))
 	for _, c := range resp.GetClv() {
+		returned[c.GetWallet()] = true
 		st, ok := statsByWallet[c.GetWallet()]
 		if !ok {
 			continue
@@ -339,6 +343,17 @@ func (s *StatsSyncer) enrichCLV(ctx context.Context, statsByWallet map[string]se
 		statsByWallet[c.GetWallet()] = st
 		if err := s.store.SetWalletCLV(ctx, c.GetWallet(), c.GetAvgClv(), c.GetN()); err != nil {
 			s.log.Warn("set clv failed", "wallet", c.GetWallet(), "err", err)
+		}
+	}
+	// Clear stale CLV for wallets pricewatch no longer has data for (dropped out),
+	// so a wallet can't keep serving a CLV that no longer reflects it. Done here
+	// (not in UpsertStats) so in-pool wallets never flash avg_clv=0 mid-refresh.
+	for w := range statsByWallet {
+		if returned[w] {
+			continue
+		}
+		if err := s.store.SetWalletCLV(ctx, w, 0, 0); err != nil {
+			s.log.Warn("clear stale clv failed", "wallet", w, "err", err)
 		}
 	}
 }

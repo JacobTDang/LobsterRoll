@@ -23,6 +23,10 @@ import (
 // gamma later learns about still resolves.
 const negCacheTTL = time.Hour
 
+// negSweepThreshold triggers a sweep of expired negative-cache entries, bounding
+// memory when many distinct unknown tokens are looked up over the process lifetime.
+const negSweepThreshold = 1024
+
 // Cache is the persistent enrichment cache.
 type Cache interface {
 	Get(ctx context.Context, tokenID string) (client.Enrichment, bool, error)
@@ -120,11 +124,20 @@ func (s *Server) negativelyCached(tokenID string) bool {
 	return true
 }
 
-// cacheNegative remembers tokenID as NotFound for negCacheTTL.
+// cacheNegative remembers tokenID as NotFound for negCacheTTL, sweeping expired
+// entries when the map grows large so one-shot unknown tokens can't leak forever.
 func (s *Server) cacheNegative(tokenID string) {
 	s.negMu.Lock()
-	s.negTok[tokenID] = s.now().Add(negCacheTTL)
-	s.negMu.Unlock()
+	defer s.negMu.Unlock()
+	now := s.now()
+	if len(s.negTok) >= negSweepThreshold {
+		for k, exp := range s.negTok {
+			if !now.Before(exp) {
+				delete(s.negTok, k)
+			}
+		}
+	}
+	s.negTok[tokenID] = now.Add(negCacheTTL)
 }
 
 var errNotFound = errors.New("enrichment: token not found")

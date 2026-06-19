@@ -62,11 +62,12 @@ func Shrink(pop []Input, k float64) []Result {
 	return res
 }
 
-// assignScores sets Score as the 0–100 percentile rank by ShrunkROI (highest
-// shrunk ROI = 100, lowest = 0, single wallet = 100). Rank is the count of
-// wallets with a STRICTLY smaller ShrunkROI, so equally-skilled wallets get the
-// SAME score (ranking by array index would spread ties across the whole range,
-// e.g. five identical wallets shown as 0/25/50/75/100).
+// assignScores sets Score as the 0–100 percentile rank by ShrunkROI. Rank is the
+// count of wallets with a STRICTLY smaller ShrunkROI, so equally-skilled wallets
+// get the SAME score (ranking by array index would spread ties across the whole
+// range, e.g. five identical wallets shown as 0/25/50/75/100). A UNIQUE highest
+// scores 100 and the lowest 0; a tied group shares the score of its lower rank
+// (so two wallets tied at the top both score below 100). Single wallet = 100.
 func assignScores(res []Result) {
 	n := len(res)
 	if n == 1 {
